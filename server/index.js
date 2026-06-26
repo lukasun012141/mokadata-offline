@@ -40,47 +40,51 @@ function mapFreightByCategoryOnlyRow(r) { return { id: r.id, categoryName: r.cat
 function mapLastMileRow(r) { return { id: r.id, fileSource: r.file_source, logisticsProvider: r.logistics_provider, countryName: r.country_name, warehouseName: r.warehouse_name, createdAt: r.created_at, updatedAt: r.updated_at }; }
 function mapPointsRedemptionRow(r) { return { id: r.id, redemptionSkuCode: r.redemption_sku_code, redemptionSkuName: r.redemption_sku_name, site: r.site, redemptionCategory: r.redemption_category, price: r.price, currency: r.currency, pointsRequired: r.points_required, pointsPerCurrencyUnit: r.points_per_currency_unit, createdAt: r.created_at, updatedAt: r.updated_at }; }
 
-// tRPC + superjson 标准批量响应格式
+// tRPC + superjson 标准响应格式
 // 前端使用 superjson transformer，响应必须包含 {json, meta} 结构
-const trpcOk = (data) => {
+const trpcOkOne = (data) => {
   const serialized = superjson.serialize(data);
-  return [{ result: { data: serialized } }];
+  return { result: { data: serialized } };
 };
-const trpcErr = (message) => [{ error: { message, code: "INTERNAL_SERVER_ERROR" } }];
+const trpcErrOne = (message) => ({ error: { message, code: "INTERNAL_SERVER_ERROR" } });
 
-// 解析 tRPC 输入参数
-function parseTrpcInput(req) {
+// 解析 tRPC 批量输入参数
+// GET 批量: ?batch=1&input={"0":{"json":{}},"1":{"json":{}}}
+// POST 批量: body = {"0":{"json":{...}},"1":{"json":{...}}}
+function parseBatchInputs(req, routes) {
+  const inputs = {};
   if (req.method === "GET") {
     try {
       const raw = req.query.input;
-      return raw ? JSON.parse(decodeURIComponent(raw)) : {};
-    } catch { return {}; }
+      const parsed = raw ? JSON.parse(decodeURIComponent(raw)) : {};
+      routes.forEach((_, i) => {
+        const item = parsed[String(i)];
+        inputs[i] = item?.json !== undefined ? item.json : (item || {});
+      });
+    } catch { routes.forEach((_, i) => { inputs[i] = {}; }); }
+  } else {
+    const body = req.body || {};
+    routes.forEach((_, i) => {
+      const item = body[String(i)];
+      inputs[i] = item?.json !== undefined ? item.json : (item || {});
+    });
   }
-  // POST batch 格式：body["0"].json
-  const body = req.body;
-  if (body && body["0"] && body["0"].json !== undefined) return body["0"].json;
-  if (body && body.json !== undefined) return body.json;
-  return body || {};
+  return inputs;
 }
 
-// ─── tRPC 拦截中间件 ─────────────────────────────────────────────────────────
-app.use("/api/trpc", async (req, res) => {
-  const routePath = req.path.replace(/^\//, "");
-  const input = parseTrpcInput(req);
-
+// ─── 单路由处理函数（返回单个结果对象，不含外层数组）────────────────────────
+async function handleRoute(routeName, input) {
   try {
-    await getDb(); // 确保 db 已初始化
-
-    // ── auth ──────────────────────────────────────────────────────────────────
-    if (routePath.includes("auth.me")) {
-      return res.json(trpcOk(OFFLINE_USER));
+    // ── auth ────────────────────────────────────────────────────────────────
+    if (routeName.includes("auth.me")) {
+      return trpcOkOne(OFFLINE_USER);
     }
-    if (routePath.includes("auth.logout")) {
-      return res.json(trpcOk({ success: true }));
+    if (routeName.includes("auth.logout")) {
+      return trpcOkOne({ success: true });
     }
 
-    // ── files ─────────────────────────────────────────────────────────────────
-    if (routePath.includes("files.list")) {
+    // ── files ────────────────────────────────────────────────────────────────
+    if (routeName.includes("files.list")) {
       const rows = query("SELECT * FROM uploaded_files ORDER BY uploaded_at DESC LIMIT 100");
       const files = rows.map(r => ({
         id: r.id,
@@ -102,97 +106,97 @@ app.use("/api/trpc", async (req, res) => {
         createdAt: new Date(r.uploaded_at || Date.now()),
         updatedAt: new Date(r.uploaded_at || Date.now()),
       }));
-      return res.json(trpcOk({ files }));
+      return trpcOkOne({ files });
     }
-    if (routePath.includes("files.delete")) {
+    if (routeName.includes("files.delete")) {
       const fileId = input?.fileId;
       if (fileId) run("DELETE FROM uploaded_files WHERE id=?", [fileId]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("files.parse")) {
-      return res.json(trpcOk({ success: true }));
+    if (routeName.includes("files.parse")) {
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("files.getVersions")) {
-      return res.json(trpcOk({ success: true, versions: [] }));
+    if (routeName.includes("files.getVersions")) {
+      return trpcOkOne({ success: true, versions: [] });
     }
-    if (routePath.includes("files.preview")) {
+    if (routeName.includes("files.preview")) {
       const XLSX = require("xlsx");
       const fs = require("fs");
-      const fileId = input?.fileId || (input && input["0"]?.json?.fileId);
+      const fileId = input?.fileId;
       const sheetName = input?.sheetName;
       const maxRows = input?.maxRows || 50;
-      if (!fileId) return res.json(trpcOk({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: "未指定文件" }));
+      if (!fileId) return trpcOkOne({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: "未指定文件" });
       const rows = query("SELECT * FROM uploaded_files WHERE id=?", [fileId]);
-      if (!rows.length) return res.json(trpcOk({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: "文件不存在" }));
+      if (!rows.length) return trpcOkOne({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: "文件不存在" });
       const fileRow = rows[0];
       const ext = (fileRow.original_name || "").split(".").pop()?.toLowerCase();
       if (!["xlsx", "xls", "csv"].includes(ext || "")) {
-        return res.json(trpcOk({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, fileType: ext, message: "该文件类型暂不支持预览，仅支持 Excel (.xlsx/.xls) 和 CSV 文件" }));
+        return trpcOkOne({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, fileType: ext, message: "该文件类型暂不支持预览，仅支持 Excel (.xlsx/.xls) 和 CSV 文件" });
       }
       const UPLOAD_DIR = require("path").join(__dirname, "../data/uploads");
       const filePath = require("path").join(UPLOAD_DIR, fileRow.storage_key);
       if (!fs.existsSync(filePath)) {
-        return res.json(trpcOk({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: "文件已丢失，请重新上传" }));
+        return trpcOkOne({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: "文件已丢失，请重新上传" });
       }
       try {
         const wb = XLSX.readFile(filePath, { cellDates: true });
         const sheetNames = wb.SheetNames;
         const targetSheet = sheetName || sheetNames[0];
         const ws = wb.Sheets[targetSheet];
-        if (!ws) return res.json(trpcOk({ sheets: sheetNames, currentSheet: targetSheet, columns: [], rows: [], totalRows: 0, message: `工作表 "${targetSheet}" 为空` }));
+        if (!ws) return trpcOkOne({ sheets: sheetNames, currentSheet: targetSheet, columns: [], rows: [], totalRows: 0, message: `工作表 "${targetSheet}" 为空` });
         const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
         const headerRow = jsonData[0] || [];
         const columns = headerRow.map((h, i) => ({ key: String(i), label: (h !== null && h !== undefined) ? String(h) : `列${i+1}` }));
         const dataRows = jsonData.slice(1, maxRows + 1).map(row => Object.fromEntries(columns.map((col, i) => [col.key, row[i] ?? null])));
-        return res.json(trpcOk({ sheets: sheetNames, currentSheet: targetSheet, columns, rows: dataRows, totalRows: jsonData.length - 1, fileType: ext, message: null }));
+        return trpcOkOne({ sheets: sheetNames, currentSheet: targetSheet, columns, rows: dataRows, totalRows: jsonData.length - 1, fileType: ext, message: null });
       } catch (e) {
-        return res.json(trpcOk({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: `解析失败: ${e.message}` }));
+        return trpcOkOne({ sheets: [], currentSheet: "", columns: [], rows: [], totalRows: 0, message: `解析失败: ${e.message}` });
       }
     }
 
-    // ── workflows ─────────────────────────────────────────────────────────────
-    if (routePath.includes("workflows.list")) {
-      return res.json(trpcOk({ workflows: [] }));
+    // ── workflows ────────────────────────────────────────────────────────────
+    if (routeName.includes("workflows.list")) {
+      return trpcOkOne({ workflows: [] });
     }
-    if (routePath.includes("workflows.")) {
-      return res.json(trpcOk({ success: true }));
-    }
-
-    // ── dashboards ────────────────────────────────────────────────────────────
-    if (routePath.includes("dashboards.list")) {
-      return res.json(trpcOk({ dashboards: [] }));
-    }
-    if (routePath.includes("dashboards.")) {
-      return res.json(trpcOk({ success: true }));
+    if (routeName.includes("workflows.")) {
+      return trpcOkOne({ success: true });
     }
 
-    // ── business ──────────────────────────────────────────────────────────────
-    if (routePath.includes("business.")) {
-      return res.json(trpcOk({ data: [], total: 0 }));
+    // ── dashboards ───────────────────────────────────────────────────────────
+    if (routeName.includes("dashboards.list")) {
+      return trpcOkOne({ dashboards: [] });
+    }
+    if (routeName.includes("dashboards.")) {
+      return trpcOkOne({ success: true });
     }
 
-    // ── reports ───────────────────────────────────────────────────────────────
-    if (routePath.includes("reports.list")) {
-      return res.json(trpcOk({ reports: [] }));
-    }
-    if (routePath.includes("reports.")) {
-      return res.json(trpcOk({ success: true }));
+    // ── business ─────────────────────────────────────────────────────────────
+    if (routeName.includes("business.")) {
+      return trpcOkOne({ data: [], total: 0 });
     }
 
-    // ── knowledge ─────────────────────────────────────────────────────────────
-    if (routePath.includes("knowledge.list")) {
-      return res.json(trpcOk({ items: [] }));
+    // ── reports ──────────────────────────────────────────────────────────────
+    if (routeName.includes("reports.list")) {
+      return trpcOkOne({ reports: [] });
     }
-    if (routePath.includes("knowledge.")) {
-      return res.json(trpcOk({ success: true }));
+    if (routeName.includes("reports.")) {
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.sku ────────────────────────────────────────────────────────────
-    if (routePath.includes("params.listSku")) {  // matches both listSku and listSkus
+    // ── knowledge ────────────────────────────────────────────────────────────
+    if (routeName.includes("knowledge.list")) {
+      return trpcOkOne({ items: [] });
+    }
+    if (routeName.includes("knowledge.")) {
+      return trpcOkOne({ success: true });
+    }
+
+    // ── params.sku ───────────────────────────────────────────────────────────
+    if (routeName.includes("params.listSku")) {
       const rows = query("SELECT * FROM sku_configs ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapSkuRow)));
+      return trpcOkOne(rows.map(mapSkuRow));
     }
-    if (routePath.includes("params.upsertSku")) {
+    if (routeName.includes("params.upsertSku")) {
       if (input?.skuCode) {
         const existing = query("SELECT id FROM sku_configs WHERE sku_code=?", [input.skuCode]);
         if (existing.length > 0) {
@@ -203,121 +207,121 @@ app.use("/api/trpc", async (req, res) => {
             [input.skuCode, input.skuNameCn, input.skuNameEn, input.skuCategory]);
         }
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deleteSku")) {
+    if (routeName.includes("params.deleteSku")) {
       if (input?.id) run("DELETE FROM sku_configs WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.exchangeRate ───────────────────────────────────────────────────
-    if (routePath.includes("params.listExchangeRate")) {  // matches both listExchangeRate and listExchangeRates
+    // ── params.exchangeRate ──────────────────────────────────────────────────
+    if (routeName.includes("params.listExchangeRate")) {
       const rows = query("SELECT * FROM exchange_rates ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapExchangeRateRow)));
+      return trpcOkOne(rows.map(mapExchangeRateRow));
     }
-    if (routePath.includes("params.upsertExchangeRate")) {
+    if (routeName.includes("params.upsertExchangeRate")) {
       if (input) {
         run("INSERT INTO exchange_rates (period, country, currency, rate_to_rmb) VALUES (?,?,?,?)",
           [input.period, input.country, input.currency, input.rateToRmb]);
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deleteExchangeRate")) {
+    if (routeName.includes("params.deleteExchangeRate")) {
       if (input?.id) run("DELETE FROM exchange_rates WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.tariff ─────────────────────────────────────────────────────────
-    if (routePath.includes("params.listTariff")) {  // matches both listTariff and listTariffs
+    // ── params.tariff ────────────────────────────────────────────────────────
+    if (routeName.includes("params.listTariff")) {
       const rows = query("SELECT * FROM tariff_configs ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapTariffRow)));
+      return trpcOkOne(rows.map(mapTariffRow));
     }
-    if (routePath.includes("params.upsertTariff")) {
+    if (routeName.includes("params.upsertTariff")) {
       if (input) {
         run("INSERT INTO tariff_configs (sku_code, product_name_cn, product_name_en, export_hs_code, import_country, import_hs_code, tariff_rate, declared_price_per_sku) VALUES (?,?,?,?,?,?,?,?)",
           [input.skuCode, input.productNameCn, input.productNameEn, input.exportHsCode, input.importCountry, input.importHsCode, input.tariffRate, input.declaredPricePerSku]);
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deleteTariff")) {
+    if (routeName.includes("params.deleteTariff")) {
       if (input?.id) run("DELETE FROM tariff_configs WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.freightBySku ───────────────────────────────────────────────────
-    if (routePath.includes("params.listFreightBySku")) {
+    // ── params.freightBySku ──────────────────────────────────────────────────
+    if (routeName.includes("params.listFreightBySku")) {
       const rows = query("SELECT * FROM freight_by_sku ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapFreightBySkuRow)));
+      return trpcOkOne(rows.map(mapFreightBySkuRow));
     }
-    if (routePath.includes("params.upsertFreightBySku")) {
+    if (routeName.includes("params.upsertFreightBySku")) {
       if (input) {
         run("INSERT INTO freight_by_sku (sku_code, destination, transport_mode, price_per_sku) VALUES (?,?,?,?)",
           [input.skuCode, input.destination, input.transportMode, input.pricePerSku]);
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deleteFreightBySku")) {
+    if (routeName.includes("params.deleteFreightBySku")) {
       if (input?.id) run("DELETE FROM freight_by_sku WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.freightByCategory ──────────────────────────────────────────────
-    if (routePath.includes("params.listFreightByCategory")) {
+    // ── params.freightByCategory ─────────────────────────────────────────────
+    if (routeName.includes("params.listFreightByCategory")) {
       const rows = query("SELECT * FROM freight_by_category ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapFreightByCategoryRow)));
+      return trpcOkOne(rows.map(mapFreightByCategoryRow));
     }
-    if (routePath.includes("params.upsertFreightByCategory")) {
+    if (routeName.includes("params.upsertFreightByCategory")) {
       if (input) {
         run("INSERT INTO freight_by_category (category_name, destination, transport_mode, price_per_category) VALUES (?,?,?,?)",
           [input.categoryName, input.destination, input.transportMode, input.pricePerCategory]);
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deleteFreightByCategory")) {
+    if (routeName.includes("params.deleteFreightByCategory")) {
       if (input?.id) run("DELETE FROM freight_by_category WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.freightByCategoryOnly ──────────────────────────────────────────
-    if (routePath.includes("params.listFreightByCategoryOnly")) {
+    // ── params.freightByCategoryOnly ─────────────────────────────────────────
+    if (routeName.includes("params.listFreightByCategoryOnly")) {
       const rows = query("SELECT * FROM freight_by_category_only ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapFreightByCategoryOnlyRow)));
+      return trpcOkOne(rows.map(mapFreightByCategoryOnlyRow));
     }
-    if (routePath.includes("params.upsertFreightByCategoryOnly")) {
+    if (routeName.includes("params.upsertFreightByCategoryOnly")) {
       if (input) {
         run("INSERT INTO freight_by_category_only (category_name, transport_mode, price_per_category) VALUES (?,?,?)",
           [input.categoryName, input.transportMode, input.pricePerCategory]);
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deleteFreightByCategoryOnly")) {
+    if (routeName.includes("params.deleteFreightByCategoryOnly")) {
       if (input?.id) run("DELETE FROM freight_by_category_only WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.lastMile ───────────────────────────────────────────────────────
-    if (routePath.includes("params.listLastMile")) {
+    // ── params.lastMile ──────────────────────────────────────────────────────
+    if (routeName.includes("params.listLastMile")) {
       const rows = query("SELECT * FROM last_mile_configs ORDER BY id DESC");
-      return res.json(trpcOk(rows.map(mapLastMileRow)));
+      return trpcOkOne(rows.map(mapLastMileRow));
     }
-    if (routePath.includes("params.upsertLastMile")) {
+    if (routeName.includes("params.upsertLastMile")) {
       if (input) {
         run("INSERT INTO last_mile_configs (file_source, logistics_provider, country_name, warehouse_name) VALUES (?,?,?,?)",
           [input.fileSource, input.logisticsProvider, input.countryName, input.warehouseName]);
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-        if (routePath.includes("params.deleteLastMile")) {
+    if (routeName.includes("params.deleteLastMile")) {
       if (input?.id) run("DELETE FROM last_mile_configs WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
 
-    // ── params.pointsRedemption ──────────────────────────────────────────
-    if (routePath.includes("params.listPointsRedemption")) {
+    // ── params.pointsRedemption ──────────────────────────────────────────────
+    if (routeName.includes("params.listPointsRedemption")) {
       const rows = query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code");
-      return res.json(trpcOk(rows.map(mapPointsRedemptionRow)));
+      return trpcOkOne(rows.map(mapPointsRedemptionRow));
     }
-    if (routePath.includes("params.upsertPointsRedemption")) {
+    if (routeName.includes("params.upsertPointsRedemption")) {
       if (input) {
         if (input.id) {
           run("UPDATE points_redemption_config SET redemption_sku_code=?, redemption_sku_name=?, site=?, redemption_category=?, price=?, currency=?, points_required=?, points_per_currency_unit=?, updated_at=? WHERE id=?",
@@ -327,13 +331,13 @@ app.use("/api/trpc", async (req, res) => {
             [input.redemptionSkuCode, input.redemptionSkuName, input.site, input.redemptionCategory || null, parseFloat(input.price) || 0, input.currency, parseInt(input.pointsRequired) || 0, input.pointsPerCurrencyUnit != null ? parseFloat(input.pointsPerCurrencyUnit) : null]);
         }
       }
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.deletePointsRedemption")) {
+    if (routeName.includes("params.deletePointsRedemption")) {
       if (input?.id) run("DELETE FROM points_redemption_config WHERE id=?", [input.id]);
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true });
     }
-    if (routePath.includes("params.downloadPointsRedemptionTemplate")) {
+    if (routeName.includes("params.downloadPointsRedemptionTemplate")) {
       const XLSX = require("xlsx");
       const wb = XLSX.utils.book_new();
       const headers = [["兑换SKU编码", "兑换SKU名称", "站点", "兑换大类", "价格", "币种", "兑换所需积分", "单位货币所需积分"]];
@@ -341,9 +345,9 @@ app.use("/api/trpc", async (req, res) => {
       ws["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 15 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 18 }, { wch: 20 }];
       XLSX.utils.book_append_sheet(wb, ws, "积分兑换匹配表");
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-      return res.json(trpcOk({ base64: Buffer.from(buf).toString("base64"), filename: "积分兑换匹配表_模板.xlsx" }));
+      return trpcOkOne({ base64: Buffer.from(buf).toString("base64"), filename: "积分兑换匹配表_模板.xlsx" });
     }
-    if (routePath.includes("params.importPointsRedemption")) {
+    if (routeName.includes("params.importPointsRedemption")) {
       if (input?.base64) {
         const XLSX = require("xlsx");
         const buf = Buffer.from(input.base64, "base64");
@@ -360,22 +364,52 @@ app.use("/api/trpc", async (req, res) => {
             imported++;
           } catch(e) {}
         }
-        return res.json(trpcOk({ success: true, imported }));
+        return trpcOkOne({ success: true, imported });
       }
-      return res.json(trpcOk({ success: true, imported: 0 }));
-    }
-    // ── system ────────────────────────────────────────────────────────────────
-    if (routePath.includes("system.")) {
-      return res.json(trpcOk({ success: true }));
+      return trpcOkOne({ success: true, imported: 0 });
     }
 
-    // ── 兜底 ──────────────────────────────────────────────────────────────────
-    console.log(`[tRPC] 未处理路由: ${routePath}`);
-    return res.json(trpcOk(null));
+    // ── system ───────────────────────────────────────────────────────────────
+    if (routeName.includes("system.")) {
+      return trpcOkOne({ success: true });
+    }
+
+    // ── 兜底 ─────────────────────────────────────────────────────────────────
+    console.log(`[tRPC] 未处理路由: ${routeName}`);
+    return trpcOkOne(null);
 
   } catch (err) {
-    console.error(`[tRPC Error] ${routePath}:`, err.message);
-    return res.status(500).json(trpcErr(err.message));
+    console.error(`[tRPC Error] ${routeName}:`, err.message);
+    return trpcErrOne(err.message);
+  }
+}
+
+// ─── tRPC 批量请求中间件 ──────────────────────────────────────────────────────
+// 支持单路由和批量路由（逗号分隔）
+app.use("/api/trpc", async (req, res) => {
+  try {
+    await getDb(); // 确保 db 已初始化
+
+    // routePath 可能是 "params.listSkus" 或 "params.listSkus,params.listExchangeRates"
+    const routePath = req.path.replace(/^\//, "");
+    const routes = routePath.split(",").map(r => r.trim()).filter(Boolean);
+
+    if (routes.length === 0) {
+      return res.json([trpcOkOne(null)]);
+    }
+
+    // 解析每个路由对应的输入参数
+    const inputs = parseBatchInputs(req, routes);
+
+    // 并行处理所有路由
+    const results = await Promise.all(
+      routes.map((routeName, i) => handleRoute(routeName, inputs[i] || {}))
+    );
+
+    return res.json(results);
+  } catch (err) {
+    console.error(`[tRPC Batch Error]:`, err.message);
+    return res.status(500).json([trpcErrOne(err.message)]);
   }
 });
 
