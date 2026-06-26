@@ -17,6 +17,8 @@ async function getDb() {
   if (fs.existsSync(DB_PATH)) {
     const fileBuffer = fs.readFileSync(DB_PATH);
     db = new SQL.Database(fileBuffer);
+    // 升级迁移：确保新表存在
+    migrateSchema(db);
   } else {
     db = new SQL.Database();
     initSchema(db);
@@ -24,6 +26,26 @@ async function getDb() {
   }
 
   return db;
+}
+
+function migrateSchema(database) {
+  // 添加 points_redemption_config 表（如果不存在）
+  database.run(`
+    CREATE TABLE IF NOT EXISTS points_redemption_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      redemption_sku_code TEXT NOT NULL,
+      redemption_sku_name TEXT NOT NULL,
+      site TEXT NOT NULL,
+      redemption_category TEXT,
+      price REAL NOT NULL,
+      currency TEXT NOT NULL,
+      points_required INTEGER NOT NULL,
+      points_per_currency_unit REAL,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `);
+  saveDb(database);
 }
 
 function saveDb(database) {
@@ -102,6 +124,20 @@ function initSchema(database) {
       country_name TEXT NOT NULL,
       warehouse_name TEXT,
       created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS points_redemption_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      redemption_sku_code TEXT NOT NULL,
+      redemption_sku_name TEXT NOT NULL,
+      site TEXT NOT NULL,
+      redemption_category TEXT,
+      price REAL NOT NULL,
+      currency TEXT NOT NULL,
+      points_required INTEGER NOT NULL,
+      points_per_currency_unit REAL,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
     );
 
     CREATE TABLE IF NOT EXISTS uploaded_files (

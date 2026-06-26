@@ -46,6 +46,11 @@ const TEMPLATES = {
     headers: ["文件来源", "物流商名称*", "国家名称*", "仓库名称"],
     example: ["亚马逊报表", "UPS", "美国", "LAX1"],
   },
+  "points-redemption": {
+    name: "积分兑换匹配表模板",
+    headers: ["兑换SKU编码*", "兑换SKU名称*", "站点*", "兑换大类", "价格*", "币种*", "兑换所需积分*", "单位货币所需积分"],
+    example: ["GC-USD-10", "$10礼品卡", "全球站", "礼品卡", "10", "USD", "1000", "100"],
+  },
 };
 
 // ─── 下载模板 ─────────────────────────────────────────────────────────────────
@@ -99,6 +104,7 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
         freight_category: "freight_by_category",
         freight_fallback: "freight_by_category_only",
         last_mile: "last_mile_configs",
+        "points-redemption": "points_redemption_config",
       };
       if (tableMap[type]) run(`DELETE FROM ${tableMap[type]}`);
     }
@@ -153,6 +159,12 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
           if (!logisticsProvider || !countryName) { skipped++; continue; }
           run("INSERT INTO last_mile_configs (file_source, logistics_provider, country_name, warehouse_name) VALUES (?,?,?,?)",
             [String(fileSource || ""), String(logisticsProvider), String(countryName), String(warehouseName || "")]);
+          inserted++;
+        } else if (type === "points-redemption") {
+          const [redemptionSkuCode, redemptionSkuName, site, redemptionCategory, price, currency, pointsRequired, pointsPerCurrencyUnit] = row;
+          if (!redemptionSkuCode || !redemptionSkuName || !site || !currency || !pointsRequired) { skipped++; continue; }
+          run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
+            [String(redemptionSkuCode), String(redemptionSkuName), String(site), String(redemptionCategory || ""), parseFloat(price) || 0, String(currency), parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null]);
           inserted++;
         }
       } catch (e) {
@@ -270,5 +282,20 @@ router.post("/last-mile", (req, res) => {
   res.json({ ok: true });
 });
 router.delete("/last-mile/:id", (req, res) => { run("DELETE FROM last_mile_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
+
+// 积分兑换匹配表
+router.get("/points-redemption", (req, res) => res.json(query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code")));
+router.post("/points-redemption", (req, res) => {
+  const { id, redemptionSkuCode, redemptionSkuName, site, redemptionCategory, price, currency, pointsRequired, pointsPerCurrencyUnit } = req.body;
+  if (id) {
+    run("UPDATE points_redemption_config SET redemption_sku_code=?, redemption_sku_name=?, site=?, redemption_category=?, price=?, currency=?, points_required=?, points_per_currency_unit=?, updated_at=? WHERE id=?",
+      [redemptionSkuCode, redemptionSkuName, site, redemptionCategory || "", parseFloat(price) || 0, currency, parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null, Date.now(), id]);
+  } else {
+    run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
+      [redemptionSkuCode, redemptionSkuName, site, redemptionCategory || "", parseFloat(price) || 0, currency, parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null]);
+  }
+  res.json({ ok: true });
+});
+router.delete("/points-redemption/:id", (req, res) => { run("DELETE FROM points_redemption_config WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 module.exports = router;
