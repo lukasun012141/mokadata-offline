@@ -51,15 +51,16 @@ call :download "server/uploadRouter.js"
 
 :: 下载并更新前端文件
 echo [3/3] 更新前端文件...
-call :download "client/dist/assets/ParamsPage-DkJ0YVAm.js"
-call :download "client/dist/assets/BusinessPage-BC5qJ7mK.js"
-call :download "client/dist/assets/DashboardPage-CxRQoivE.js"
-call :download "client/dist/assets/WorkflowsPage-DUMgCUyy.js"
-call :download "client/dist/assets/ReportsPage-DBv5Uz8g.js"
-call :download "client/dist/assets/KnowledgePage-DeG5uDOf.js"
-call :download "client/dist/assets/FilesPage-EQdd3wlg.js"
-call :download "client/dist/assets/SettingsPage-DoSqe2-Q.js"
-call :download "client/dist/assets/index-B-cibgTD.js"
+call :download "client/dist/index.html"
+call :download "client/dist/assets/ParamsPage-BNDV3Nnx.js"
+call :download "client/dist/assets/BusinessPage-BFNi_E2h.js"
+call :download "client/dist/assets/DashboardPage-DvIUWCdZ.js"
+call :download "client/dist/assets/WorkflowsPage-BxZvsh-C.js"
+call :download "client/dist/assets/ReportsPage-CeDkQnae.js"
+call :download "client/dist/assets/KnowledgePage-DwZR7j74.js"
+call :download "client/dist/assets/FilesPage-B4Cgw1Uc.js"
+call :download "client/dist/assets/SettingsPage-C9WHNOba.js"
+call :download "client/dist/assets/index-CN4WgvMS.js"
 call :download "client/dist/assets/index-C_xek34J.css"
 
 echo.

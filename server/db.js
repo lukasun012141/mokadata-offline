@@ -45,6 +45,21 @@ function migrateSchema(database) {
       updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
     )
   `);
+
+  // 添加 extra_fields 列到各参数表（如果不存在）
+  const tablesForExtraFields = [
+    "sku_configs", "exchange_rates", "tariff_configs",
+    "freight_by_sku", "freight_by_category", "freight_by_category_only",
+    "last_mile_configs", "points_redemption_config",
+  ];
+  for (const tbl of tablesForExtraFields) {
+    try {
+      database.run(`ALTER TABLE ${tbl} ADD COLUMN extra_fields TEXT`);
+    } catch (e) {
+      // 列已存在，忽略
+    }
+  }
+
   saveDb(database);
 }
 
