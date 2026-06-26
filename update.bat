@@ -1,63 +1,96 @@
 @echo off
-chcp 65001 >nul
-title MokaData - Update
-echo ============================================
-echo   MokaData - Checking for Updates
-echo ============================================
-echo.
-echo Downloading latest version from GitHub...
+chcp 65001 >nul 2>&1
+title MokaData - 自动更新
+
+echo ================================================
+echo   MokaData - 自动更新
+echo ================================================
 echo.
 
+:: 获取脚本所在目录（安装目录）
 set "INSTALL_DIR=%~dp0"
 if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
-set "TMP_ZIP=%TEMP%\mokadata_update.zip"
-set "TMP_DIR=%TEMP%\mokadata_update_tmp"
-set "DOWNLOAD_URL=https://github.com/lukasun012141/mokadata-offline/archive/refs/heads/main.zip"
 
-if exist "%TMP_ZIP%" del /f /q "%TMP_ZIP%"
-if exist "%TMP_DIR%" rmdir /s /q "%TMP_DIR%"
+echo 安装目录: %INSTALL_DIR%
+echo.
 
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DOWNLOAD_URL%' -OutFile '%TMP_ZIP%' -UseBasicParsing"
+:: CDN 基础地址（jsdelivr，国内可访问，无需 VPN）
+set "CDN=https://cdn.jsdelivr.net/gh/lukasun012141/mokadata-offline@main"
+
+:: 检查 PowerShell 是否可用
+where powershell >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Download failed. Please check your network.
-    pause
-    exit /b 1
-)
-echo Download complete. Extracting...
-
-powershell -NoProfile -Command "Expand-Archive -Path '%TMP_ZIP%' -DestinationPath '%TMP_DIR%' -Force"
-if errorlevel 1 (
-    echo ERROR: Extract failed.
+    echo [错误] 未找到 PowerShell，无法自动更新
     pause
     exit /b 1
 )
 
-set "SRC_DIR=%TMP_DIR%\mokadata-offline-main"
-
-echo Updating server files...
-copy /y "%SRC_DIR%\server\index.js" "%INSTALL_DIR%\server\index.js" >nul
-copy /y "%SRC_DIR%\server\db.js" "%INSTALL_DIR%\server\db.js" >nul
-copy /y "%SRC_DIR%\server\paramsRouter.js" "%INSTALL_DIR%\server\paramsRouter.js" >nul
-if exist "%SRC_DIR%\server\uploadRouter.js" copy /y "%SRC_DIR%\server\uploadRouter.js" "%INSTALL_DIR%\server\uploadRouter.js" >nul
-
-echo Updating frontend files...
-if exist "%INSTALL_DIR%\client\dist" rmdir /s /q "%INSTALL_DIR%\client\dist"
-mkdir "%INSTALL_DIR%\client\dist"
-xcopy /E /I /Y /Q "%SRC_DIR%\client\dist\*" "%INSTALL_DIR%\client\dist\" >nul
+echo 正在检查网络连接...
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%CDN%/server/index.js' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null; Write-Host 'OK' } catch { Write-Host 'FAIL'; exit 1 }" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Frontend update failed.
+    echo [错误] 无法连接到更新服务器（cdn.jsdelivr.net）
+    echo 请检查网络连接后重试
     pause
     exit /b 1
 )
 
-if exist "%SRC_DIR%\package.json" copy /y "%SRC_DIR%\package.json" "%INSTALL_DIR%\package.json" >nul
+echo 网络连接正常，开始下载更新...
+echo.
 
-del /f /q "%TMP_ZIP%" >nul 2>&1
-rmdir /s /q "%TMP_DIR%" >nul 2>&1
+:: 停止正在运行的 MokaData 服务
+echo [1/3] 停止 MokaData 服务...
+taskkill /F /IM node.exe /T >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+:: 下载并更新服务器文件
+echo [2/3] 更新服务器文件...
+call :download "server/index.js"
+call :download "server/db.js"
+call :download "server/paramsRouter.js"
+call :download "server/uploadRouter.js"
+
+:: 下载并更新前端文件
+echo [3/3] 更新前端文件...
+call :download "client/dist/assets/ParamsPage-DkJ0YVAm.js"
+call :download "client/dist/assets/BusinessPage-BC5qJ7mK.js"
+call :download "client/dist/assets/DashboardPage-CxRQoivE.js"
+call :download "client/dist/assets/WorkflowsPage-DUMgCUyy.js"
+call :download "client/dist/assets/ReportsPage-DBv5Uz8g.js"
+call :download "client/dist/assets/KnowledgePage-DeG5uDOf.js"
+call :download "client/dist/assets/FilesPage-EQdd3wlg.js"
+call :download "client/dist/assets/SettingsPage-DoSqe2-Q.js"
+call :download "client/dist/assets/index-B-cibgTD.js"
+call :download "client/dist/assets/index-C_xek34J.css"
 
 echo.
-echo ============================================
-echo   Update complete! Starting MokaData...
-echo ============================================
+echo ================================================
+echo   更新完成！正在重新启动 MokaData...
+echo ================================================
 echo.
-call "%INSTALL_DIR%\start.bat"
+
+timeout /t 1 /nobreak >nul
+start "" "%INSTALL_DIR%\start.bat"
+
+echo MokaData 已启动，请在浏览器按 Ctrl+Shift+R 强制刷新
+echo.
+pause
+exit /b 0
+
+:: ─── 下载单个文件的子程序 ─────────────────────────────────────────────────────
+:download
+set "_SRC=%~1"
+set "_DEST=%INSTALL_DIR%\%_SRC:/=\%"
+
+:: 确保目标目录存在
+for %%F in ("%_DEST%") do (
+    if not exist "%%~dpF" mkdir "%%~dpF" >nul 2>&1
+)
+
+powershell -NoProfile -Command ^
+    "try {" ^
+    "  Invoke-WebRequest -Uri '%CDN%/%_SRC%' -OutFile '%_DEST%' -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop;" ^
+    "  Write-Host '  [OK] %_SRC%'" ^
+    "} catch {" ^
+    "  Write-Host '  [跳过] %_SRC%'" ^
+    "}"
+exit /b 0
