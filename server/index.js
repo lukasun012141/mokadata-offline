@@ -297,11 +297,63 @@ app.use("/api/trpc", async (req, res) => {
       }
       return res.json(trpcOk({ success: true }));
     }
-    if (routePath.includes("params.deleteLastMile")) {
+        if (routePath.includes("params.deleteLastMile")) {
       if (input?.id) run("DELETE FROM last_mile_configs WHERE id=?", [input.id]);
       return res.json(trpcOk({ success: true }));
     }
 
+    // ── params.pointsRedemption ──────────────────────────────────────────
+    if (routePath.includes("params.listPointsRedemption")) {
+      const rows = query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code");
+      return res.json(trpcOk({ items: rows }));
+    }
+    if (routePath.includes("params.upsertPointsRedemption")) {
+      if (input) {
+        if (input.id) {
+          run("UPDATE points_redemption_config SET redemption_sku_code=?, redemption_sku_name=?, site=?, redemption_category=?, price=?, currency=?, points_required=?, points_per_currency_unit=?, updated_at=? WHERE id=?",
+            [input.redemptionSkuCode, input.redemptionSkuName, input.site, input.redemptionCategory || null, parseFloat(input.price) || 0, input.currency, parseInt(input.pointsRequired) || 0, input.pointsPerCurrencyUnit != null ? parseFloat(input.pointsPerCurrencyUnit) : null, Date.now(), input.id]);
+        } else {
+          run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
+            [input.redemptionSkuCode, input.redemptionSkuName, input.site, input.redemptionCategory || null, parseFloat(input.price) || 0, input.currency, parseInt(input.pointsRequired) || 0, input.pointsPerCurrencyUnit != null ? parseFloat(input.pointsPerCurrencyUnit) : null]);
+        }
+      }
+      return res.json(trpcOk({ success: true }));
+    }
+    if (routePath.includes("params.deletePointsRedemption")) {
+      if (input?.id) run("DELETE FROM points_redemption_config WHERE id=?", [input.id]);
+      return res.json(trpcOk({ success: true }));
+    }
+    if (routePath.includes("params.downloadPointsRedemptionTemplate")) {
+      const XLSX = require("xlsx");
+      const wb = XLSX.utils.book_new();
+      const headers = [["兑换SKU编码", "兑换SKU名称", "站点", "兑换大类", "价格", "币种", "兑换所需积分", "单位货币所需积分"]];
+      const ws = XLSX.utils.aoa_to_sheet(headers);
+      ws["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 15 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 18 }, { wch: 20 }];
+      XLSX.utils.book_append_sheet(wb, ws, "积分兑换匹配表");
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      return res.json(trpcOk({ base64: Buffer.from(buf).toString("base64"), filename: "积分兑换匹配表_模板.xlsx" }));
+    }
+    if (routePath.includes("params.importPointsRedemption")) {
+      if (input?.base64) {
+        const XLSX = require("xlsx");
+        const buf = Buffer.from(input.base64, "base64");
+        const wb = XLSX.read(buf, { type: "buffer" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+        const dataRows = rows.slice(1).filter(r => r[0]);
+        if (input.mode === "overwrite") run("DELETE FROM points_redemption_config");
+        let imported = 0;
+        for (const row of dataRows) {
+          try {
+            run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
+              [String(row[0] ?? ""), String(row[1] ?? ""), String(row[2] ?? ""), row[3] ? String(row[3]) : null, parseFloat(row[4]) || 0, String(row[5] ?? "USD"), parseInt(row[6]) || 0, row[7] != null ? parseFloat(row[7]) : null]);
+            imported++;
+          } catch(e) {}
+        }
+        return res.json(trpcOk({ success: true, imported }));
+      }
+      return res.json(trpcOk({ success: true, imported: 0 }));
+    }
     // ── system ────────────────────────────────────────────────────────────────
     if (routePath.includes("system.")) {
       return res.json(trpcOk({ success: true }));
