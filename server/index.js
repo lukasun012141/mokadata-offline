@@ -30,6 +30,16 @@ const OFFLINE_USER = {
   lastSignedIn: new Date().toISOString(),
 };
 
+// 字段名映射：下划线 → 驼峰（与在线版 Drizzle ORM 保持一致）
+function mapSkuRow(r) { return { id: r.id, skuCode: r.sku_code, skuNameCn: r.sku_name_cn, skuNameEn: r.sku_name_en, skuCategory: r.sku_category, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapExchangeRateRow(r) { return { id: r.id, period: r.period, country: r.country, currency: r.currency, rateToRmb: r.rate_to_rmb, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapTariffRow(r) { return { id: r.id, skuCode: r.sku_code, productNameCn: r.product_name_cn, productNameEn: r.product_name_en, exportHsCode: r.export_hs_code, importCountry: r.import_country, importHsCode: r.import_hs_code, tariffRate: r.tariff_rate, declaredPricePerSku: r.declared_price_per_sku, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapFreightBySkuRow(r) { return { id: r.id, skuCode: r.sku_code, destination: r.destination, transportMode: r.transport_mode, pricePerSku: r.price_per_sku, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapFreightByCategoryRow(r) { return { id: r.id, categoryName: r.category_name, destination: r.destination, transportMode: r.transport_mode, pricePerCategory: r.price_per_category, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapFreightByCategoryOnlyRow(r) { return { id: r.id, categoryName: r.category_name, transportMode: r.transport_mode, pricePerCategory: r.price_per_category, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapLastMileRow(r) { return { id: r.id, fileSource: r.file_source, logisticsProvider: r.logistics_provider, countryName: r.country_name, warehouseName: r.warehouse_name, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapPointsRedemptionRow(r) { return { id: r.id, redemptionSkuCode: r.redemption_sku_code, redemptionSkuName: r.redemption_sku_name, site: r.site, redemptionCategory: r.redemption_category, price: r.price, currency: r.currency, pointsRequired: r.points_required, pointsPerCurrencyUnit: r.points_per_currency_unit, createdAt: r.created_at, updatedAt: r.updated_at }; }
+
 // tRPC + superjson 标准批量响应格式
 // 前端使用 superjson transformer，响应必须包含 {json, meta} 结构
 const trpcOk = (data) => {
@@ -180,7 +190,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.sku ────────────────────────────────────────────────────────────
     if (routePath.includes("params.listSku")) {  // matches both listSku and listSkus
       const rows = query("SELECT * FROM sku_configs ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapSkuRow)));
     }
     if (routePath.includes("params.upsertSku")) {
       if (input?.skuCode) {
@@ -203,7 +213,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.exchangeRate ───────────────────────────────────────────────────
     if (routePath.includes("params.listExchangeRate")) {  // matches both listExchangeRate and listExchangeRates
       const rows = query("SELECT * FROM exchange_rates ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapExchangeRateRow)));
     }
     if (routePath.includes("params.upsertExchangeRate")) {
       if (input) {
@@ -220,7 +230,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.tariff ─────────────────────────────────────────────────────────
     if (routePath.includes("params.listTariff")) {  // matches both listTariff and listTariffs
       const rows = query("SELECT * FROM tariff_configs ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapTariffRow)));
     }
     if (routePath.includes("params.upsertTariff")) {
       if (input) {
@@ -237,7 +247,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.freightBySku ───────────────────────────────────────────────────
     if (routePath.includes("params.listFreightBySku")) {
       const rows = query("SELECT * FROM freight_by_sku ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapFreightBySkuRow)));
     }
     if (routePath.includes("params.upsertFreightBySku")) {
       if (input) {
@@ -254,7 +264,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.freightByCategory ──────────────────────────────────────────────
     if (routePath.includes("params.listFreightByCategory")) {
       const rows = query("SELECT * FROM freight_by_category ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapFreightByCategoryRow)));
     }
     if (routePath.includes("params.upsertFreightByCategory")) {
       if (input) {
@@ -271,7 +281,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.freightByCategoryOnly ──────────────────────────────────────────
     if (routePath.includes("params.listFreightByCategoryOnly")) {
       const rows = query("SELECT * FROM freight_by_category_only ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapFreightByCategoryOnlyRow)));
     }
     if (routePath.includes("params.upsertFreightByCategoryOnly")) {
       if (input) {
@@ -288,7 +298,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.lastMile ───────────────────────────────────────────────────────
     if (routePath.includes("params.listLastMile")) {
       const rows = query("SELECT * FROM last_mile_configs ORDER BY id DESC");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapLastMileRow)));
     }
     if (routePath.includes("params.upsertLastMile")) {
       if (input) {
@@ -305,7 +315,7 @@ app.use("/api/trpc", async (req, res) => {
     // ── params.pointsRedemption ──────────────────────────────────────────
     if (routePath.includes("params.listPointsRedemption")) {
       const rows = query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code");
-      return res.json(trpcOk({ items: rows }));
+      return res.json(trpcOk(rows.map(mapPointsRedemptionRow)));
     }
     if (routePath.includes("params.upsertPointsRedemption")) {
       if (input) {
