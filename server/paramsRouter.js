@@ -177,6 +177,27 @@ router.get("/template/:type", (req, res) => {
   res.send(buf);
 });
 
+// ─── 辅助：获取表的实际列名（用于兼容新旧表结构）────────────────────────────
+function getTableColumns(tableName) {
+  try {
+    const rows = query(`PRAGMA table_info(${tableName})`);
+    return rows.map(r => r.name);
+  } catch (e) {
+    return [];
+  }
+}
+
+// 旧表结构的 NOT NULL 列默认值（兼容旧表，INSERT 时补充这些列）
+const OLD_TABLE_DEFAULTS = {
+  exchange_rates: { period: "", country: "", currency: "", rate_to_rmb: 0 },
+  tariff_configs: { sku_code: "", import_country: "" },
+  freight_by_sku: { sku_code: "", destination: "", transport_mode: "", price_per_sku: 0 },
+  freight_by_category: { category_name: "", destination: "", transport_mode: "", price_per_category: 0 },
+  freight_by_category_only: { category_name: "", transport_mode: "", price_per_category: 0 },
+  last_mile_configs: { logistics_provider: "", country_name: "" },
+  points_redemption_config: {},
+};
+
 // ─── 上传导入 ─────────────────────────────────────────────────────────────────
 router.post("/import/:type", upload.single("file"), (req, res) => {
   try {
@@ -193,10 +214,19 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
     const headerRow = rows[0].map(h => String(h || "").trim());
     const dataRows = rows.slice(1).filter(r => r.some(c => c !== ""));
 
-    console.log("[Import v4] type:", type, "| mode:", mode, "| rows:", dataRows.length);
+    console.log("[Import v5] type:", type, "| mode:", mode, "| rows:", dataRows.length);
 
     const tableName = TABLE_MAP[type];
     if (!tableName) return res.status(400).json({ message: "未知类型: " + type });
+
+    // 检测表的实际列结构（兼容新旧表）
+    const actualCols = getTableColumns(tableName);
+    const hasOldCols = actualCols.some(c => ![
+      "id", "extra_fields", "created_at", "updated_at",
+      "sku_code", "sku_name_cn", "sku_name_en", "sku_category"
+    ].includes(c));
+    const defaults = OLD_TABLE_DEFAULTS[tableName] || {};
+    console.log("[Import v5] 表结构:", actualCols.join(","), "| 旧结构:", hasOldCols);
 
     // 全量覆盖：先清空
     if (mode === "full") {
@@ -226,8 +256,24 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
               [skuCode, skuNameCn, skuNameEn, skuCategory, extraFields]);
           }
           inserted++;
+        } else if (hasOldCols) {
+          // 旧表结构：INSERT 时同时填充旧列（用空字符串/0 满足 NOT NULL）和 extra_fields
+          const efVal = extractExtraFields(headerRow, row);
+          if (!efVal) { skipped++; continue; }
+          // 动态构建 INSERT，只包含表中实际存在的列
+          const colsToInsert = ["extra_fields"];
+          const valsToInsert = [efVal];
+          for (const [col, defVal] of Object.entries(defaults)) {
+            if (actualCols.includes(col)) {
+              colsToInsert.push(col);
+              valsToInsert.push(defVal);
+            }
+          }
+          const placeholders = colsToInsert.map(() => "?").join(",");
+          run(`INSERT INTO ${tableName} (${colsToInsert.join(",")}) VALUES (${placeholders})`, valsToInsert);
+          inserted++;
         } else {
-          // 所有其他类型：全部打包为 extra_fields，只 INSERT (extra_fields)
+          // 新表结构：只 INSERT extra_fields
           const efVal = extractExtraFields(headerRow, row);
           if (!efVal) { skipped++; continue; }
           run(`INSERT INTO ${tableName} (extra_fields) VALUES (?)`, [efVal]);
@@ -239,10 +285,10 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
       }
     }
 
-    console.log("[Import v4] 完成: inserted=" + inserted + ", skipped=" + skipped);
+    console.log("[Import v5] 完成: inserted=" + inserted + ", skipped=" + skipped);
     res.json({ inserted, skipped });
   } catch (e) {
-    console.error("[Import v4] 出错:", e.message);
+    console.error("[Import v5] 出错:", e.message);
     res.status(500).json({ message: e.message });
   }
 });
