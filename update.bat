@@ -15,7 +15,7 @@ echo 安装目录: %INSTALL_DIR%
 echo.
 
 :: CDN 基础地址（jsdelivr，国内可访问，无需 VPN）
-set "CDN=https://cdn.jsdelivr.net/gh/lukasun012141/mokadata-offline@main"
+set "CDN=https://cdn.jsdelivr.net/gh/lukasun012141/mokadata-offline@0998de0319adecacb1d324d869dcadbc9b817b8d"
 
 :: 检查 PowerShell 是否可用
 where powershell >nul 2>&1
