@@ -372,6 +372,32 @@ async function handleRoute(routeName, input) {
       return trpcOkOne({ success: true, imported: 0 });
     }
 
+    // ── settings ─────────────────────────────────────────────────────────────
+    if (routeName.includes("settings.getAll")) {
+      // 确保 settings 表存在
+      run(`CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+      )`);
+      const rows = query("SELECT key, value FROM app_settings");
+      const result = {};
+      for (const row of rows) result[row.key] = row.value;
+      return trpcOkOne(result);
+    }
+    if (routeName.includes("settings.set")) {
+      run(`CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+      )`);
+      if (input?.key) {
+        run("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+          [input.key, String(input.value ?? ""), Date.now()]);
+      }
+      return trpcOkOne({ success: true });
+    }
+
     // ── system ───────────────────────────────────────────────────────────────
     if (routeName.includes("system.")) {
       return trpcOkOne({ success: true });
