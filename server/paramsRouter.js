@@ -67,13 +67,17 @@ const TEMPLATES = {
  * @param {number} standardColCount - 模板标准列数
  * @returns {string|null} JSON 字符串或 null
  */
-function extractExtraFields(headerRow, dataRow, standardColCount) {
+// 把所有列（包括固定列）全部存入 extraFields，不做任何排除
+// 策略：第一行有多少列，就存多少列，不限制列数
+function extractExtraFields(headerRow, dataRow) {
   const extra = {};
-  for (let i = standardColCount; i < headerRow.length; i++) {
+  for (let i = 0; i < headerRow.length; i++) {
     const key = String(headerRow[i] || "").trim();
     if (!key) continue;
     const val = dataRow[i];
-    if (val !== undefined && val !== "") extra[key] = String(val);
+    if (val !== undefined && val !== null && String(val).trim() !== "") {
+      extra[key] = String(val).trim();
+    }
   }
   return Object.keys(extra).length > 0 ? JSON.stringify(extra) : null;
 }
@@ -141,7 +145,7 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
         if (type === "sku") {
           const [skuCode, skuNameCn, skuNameEn, skuCategory] = row;
           if (!skuCode || !skuNameCn) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 4);
+          const extraFields = extractExtraFields(headerRow, row);
           const existing = query("SELECT id FROM sku_configs WHERE sku_code = ?", [String(skuCode).trim()]);
           if (existing.length > 0 && mode === "incremental") { skipped++; continue; }
           if (existing.length > 0) {
@@ -155,49 +159,49 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
         } else if (type === "exchange_rate") {
           const [period, country, currency, rateToRmb] = row;
           if (!period || !country || !currency || !rateToRmb) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 4);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO exchange_rates (period, country, currency, rate_to_rmb, extra_fields) VALUES (?,?,?,?,?)",
             [String(period), String(country), String(currency), parseFloat(rateToRmb), extraFields]);
           inserted++;
         } else if (type === "tariff") {
           const [skuCode, productNameCn, productNameEn, exportHsCode, importCountry, importHsCode, tariffRate, declaredPrice] = row;
           if (!skuCode || !importCountry) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 8);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO tariff_configs (sku_code, product_name_cn, product_name_en, export_hs_code, import_country, import_hs_code, tariff_rate, declared_price_per_sku, extra_fields) VALUES (?,?,?,?,?,?,?,?,?)",
             [String(skuCode), String(productNameCn || ""), String(productNameEn || ""), String(exportHsCode || ""), String(importCountry), String(importHsCode || ""), tariffRate ? parseFloat(tariffRate) : null, declaredPrice ? parseFloat(declaredPrice) : null, extraFields]);
           inserted++;
         } else if (type === "freight_sku") {
           const [skuCode, destination, transportMode, pricePerSku] = row;
           if (!skuCode || !destination || !transportMode || !pricePerSku) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 4);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO freight_by_sku (sku_code, destination, transport_mode, price_per_sku, extra_fields) VALUES (?,?,?,?,?)",
             [String(skuCode), String(destination), String(transportMode), parseFloat(pricePerSku), extraFields]);
           inserted++;
         } else if (type === "freight_category") {
           const [categoryName, destination, transportMode, pricePerCategory] = row;
           if (!categoryName || !destination || !transportMode || !pricePerCategory) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 4);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO freight_by_category (category_name, destination, transport_mode, price_per_category, extra_fields) VALUES (?,?,?,?,?)",
             [String(categoryName), String(destination), String(transportMode), parseFloat(pricePerCategory), extraFields]);
           inserted++;
         } else if (type === "freight_fallback") {
           const [categoryName, transportMode, pricePerCategory] = row;
           if (!categoryName || !transportMode || !pricePerCategory) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 3);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO freight_by_category_only (category_name, transport_mode, price_per_category, extra_fields) VALUES (?,?,?,?)",
             [String(categoryName), String(transportMode), parseFloat(pricePerCategory), extraFields]);
           inserted++;
         } else if (type === "last_mile") {
           const [fileSource, logisticsProvider, countryName, warehouseName] = row;
           if (!logisticsProvider || !countryName) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 4);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO last_mile_configs (file_source, logistics_provider, country_name, warehouse_name, extra_fields) VALUES (?,?,?,?,?)",
             [String(fileSource || ""), String(logisticsProvider), String(countryName), String(warehouseName || ""), extraFields]);
           inserted++;
         } else if (type === "points-redemption" || type === "points_redemption") {
           const [redemptionSkuCode, redemptionSkuName, site, redemptionCategory, price, currency, pointsRequired, pointsPerCurrencyUnit] = row;
           if (!redemptionSkuCode || !redemptionSkuName || !site || !currency || !pointsRequired) { skipped++; continue; }
-          const extraFields = extractExtraFields(headerRow, row, 8);
+          const extraFields = extractExtraFields(headerRow, row);
           run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit, extra_fields) VALUES (?,?,?,?,?,?,?,?,?)",
             [String(redemptionSkuCode), String(redemptionSkuName), String(site), String(redemptionCategory || ""), parseFloat(price) || 0, String(currency), parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null, extraFields]);
           inserted++;
