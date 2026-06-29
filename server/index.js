@@ -33,7 +33,7 @@ const OFFLINE_USER = {
 };
 
 // 字段名映射：下划线 → 驼峰（与在线版 Drizzle ORM 保持一致）
-function mapSkuRow(r) { return { id: r.id, skuCode: r.sku_code, skuNameCn: r.sku_name_cn, skuNameEn: r.sku_name_en, skuCategory: r.sku_category, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapSkuRow(r) { return { id: r.id, skuCode: r.sku_code, skuNameCn: r.sku_name_cn, skuNameEn: r.sku_name_en, skuCategory: r.sku_category, extraFields: r.extra_fields ? (typeof r.extra_fields === 'string' ? JSON.parse(r.extra_fields) : r.extra_fields) : null, createdAt: r.created_at, updatedAt: r.updated_at }; }
 function mapExchangeRateRow(r) { return { id: r.id, period: r.period, country: r.country, currency: r.currency, rateToRmb: r.rate_to_rmb, createdAt: r.created_at, updatedAt: r.updated_at }; }
 function mapTariffRow(r) { return { id: r.id, skuCode: r.sku_code, productNameCn: r.product_name_cn, productNameEn: r.product_name_en, exportHsCode: r.export_hs_code, importCountry: r.import_country, importHsCode: r.import_hs_code, tariffRate: r.tariff_rate, declaredPricePerSku: r.declared_price_per_sku, createdAt: r.created_at, updatedAt: r.updated_at }; }
 function mapFreightBySkuRow(r) { return { id: r.id, skuCode: r.sku_code, destination: r.destination, transportMode: r.transport_mode, pricePerSku: r.price_per_sku, createdAt: r.created_at, updatedAt: r.updated_at }; }
@@ -200,13 +200,14 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertSku")) {
       if (input?.skuCode) {
+        const extraFieldsVal = input.extraFields != null ? JSON.stringify(input.extraFields) : null;
         const existing = query("SELECT id FROM sku_configs WHERE sku_code=?", [input.skuCode]);
         if (existing.length > 0) {
-          run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, updated_at=? WHERE sku_code=?",
-            [input.skuNameCn, input.skuNameEn, input.skuCategory, Date.now(), input.skuCode]);
+          run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, extra_fields=?, updated_at=? WHERE sku_code=?",
+            [input.skuNameCn, input.skuNameEn, input.skuCategory, extraFieldsVal, Date.now(), input.skuCode]);
         } else {
-          run("INSERT INTO sku_configs (sku_code, sku_name_cn, sku_name_en, sku_category) VALUES (?,?,?,?)",
-            [input.skuCode, input.skuNameCn, input.skuNameEn, input.skuCategory]);
+          run("INSERT INTO sku_configs (sku_code, sku_name_cn, sku_name_en, sku_category, extra_fields) VALUES (?,?,?,?,?)",
+            [input.skuCode, input.skuNameCn, input.skuNameEn, input.skuCategory, extraFieldsVal]);
         }
       }
       return trpcOkOne({ success: true });
@@ -530,16 +531,30 @@ paramsApp.post("/import/:type", paramsUpload.single("file"), (req, res) => {
     for (const row of dataRows) {
       try {
         if (type === "sku") {
-          const [skuCode, skuNameCn, skuNameEn, skuCategory] = row;
+          const [skuCode, skuNameCn, skuNameEn, skuCategory, ...extraCols] = row;
           if (!skuCode || !skuNameCn) { skipped++; continue; }
+          // 读取标题行，提取第5列起的额外字段名
+          const headerRow = rows[0].map(h => String(h || "").trim());
+          const extraFieldNames = headerRow.slice(4);
+          let extraFieldsVal = null;
+          if (extraFieldNames.length > 0 && extraCols.length > 0) {
+            const extra = {};
+            extraFieldNames.forEach((name, idx) => {
+              const val = extraCols[idx];
+              if (name && val !== undefined && val !== null && String(val).trim() !== "") {
+                extra[name] = String(val).trim();
+              }
+            });
+            if (Object.keys(extra).length > 0) extraFieldsVal = JSON.stringify(extra);
+          }
           const existing = query("SELECT id FROM sku_configs WHERE sku_code = ?", [String(skuCode).trim()]);
           if (existing.length > 0 && mode === "incremental") { skipped++; continue; }
           if (existing.length > 0) {
-            run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, updated_at=? WHERE sku_code=?",
-              [String(skuNameCn), String(skuNameEn || ""), String(skuCategory || ""), Date.now(), String(skuCode).trim()]);
+            run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, extra_fields=?, updated_at=? WHERE sku_code=?",
+              [String(skuNameCn), String(skuNameEn || ""), String(skuCategory || ""), extraFieldsVal, Date.now(), String(skuCode).trim()]);
           } else {
-            run("INSERT INTO sku_configs (sku_code, sku_name_cn, sku_name_en, sku_category) VALUES (?,?,?,?)",
-              [String(skuCode).trim(), String(skuNameCn), String(skuNameEn || ""), String(skuCategory || "")]);
+            run("INSERT INTO sku_configs (sku_code, sku_name_cn, sku_name_en, sku_category, extra_fields) VALUES (?,?,?,?,?)",
+              [String(skuCode).trim(), String(skuNameCn), String(skuNameEn || ""), String(skuCategory || ""), extraFieldsVal]);
           }
           inserted++;
         } else if (type === "exchange_rate") {
@@ -601,13 +616,14 @@ paramsApp.post("/import/:type", paramsUpload.single("file"), (req, res) => {
 // SKU 配置
 paramsApp.get("/sku", (req, res) => res.json(query("SELECT * FROM sku_configs ORDER BY id DESC")));
 paramsApp.post("/sku", (req, res) => {
-  const { id, skuCode, skuNameCn, skuNameEn, skuCategory } = req.body;
+  const { id, skuCode, skuNameCn, skuNameEn, skuCategory, extraFields } = req.body;
+  const extraFieldsVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, updated_at=? WHERE id=?",
-      [skuNameCn, skuNameEn || "", skuCategory || "", Date.now(), id]);
+    run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, extra_fields=?, updated_at=? WHERE id=?",
+      [skuNameCn, skuNameEn || "", skuCategory || "", extraFieldsVal, Date.now(), id]);
   } else {
-    run("INSERT INTO sku_configs (sku_code, sku_name_cn, sku_name_en, sku_category) VALUES (?,?,?,?)",
-      [skuCode, skuNameCn, skuNameEn || "", skuCategory || ""]);
+    run("INSERT INTO sku_configs (sku_code, sku_name_cn, sku_name_en, sku_category, extra_fields) VALUES (?,?,?,?,?)",
+      [skuCode, skuNameCn, skuNameEn || "", skuCategory || "", extraFieldsVal]);
   }
   res.json({ ok: true });
 });
