@@ -216,10 +216,115 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
   }
 });
 
+// ─── 辅助：把 SQLite 行的 snake_case 字段名映射为前端期望的 camelCase ──────────
+function mapSkuRow(r) {
+  return {
+    id: r.id,
+    skuCode: r.sku_code,
+    skuNameCn: r.sku_name_cn,
+    skuNameEn: r.sku_name_en,
+    skuCategory: r.sku_category,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapExchangeRateRow(r) {
+  return {
+    id: r.id,
+    period: r.period,
+    country: r.country,
+    currency: r.currency,
+    rateToRmb: r.rate_to_rmb,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapTariffRow(r) {
+  return {
+    id: r.id,
+    skuCode: r.sku_code,
+    productNameCn: r.product_name_cn,
+    productNameEn: r.product_name_en,
+    exportHsCode: r.export_hs_code,
+    importCountry: r.import_country,
+    importHsCode: r.import_hs_code,
+    tariffRate: r.tariff_rate,
+    declaredPricePerSku: r.declared_price_per_sku,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapFreightSkuRow(r) {
+  return {
+    id: r.id,
+    skuCode: r.sku_code,
+    destination: r.destination,
+    transportMode: r.transport_mode,
+    pricePerSku: r.price_per_sku,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapFreightCategoryRow(r) {
+  return {
+    id: r.id,
+    categoryName: r.category_name,
+    destination: r.destination,
+    transportMode: r.transport_mode,
+    pricePerCategory: r.price_per_category,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapFreightFallbackRow(r) {
+  return {
+    id: r.id,
+    categoryName: r.category_name,
+    transportMode: r.transport_mode,
+    pricePerCategory: r.price_per_category,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapLastMileRow(r) {
+  return {
+    id: r.id,
+    fileSource: r.file_source,
+    logisticsProvider: r.logistics_provider,
+    countryName: r.country_name,
+    warehouseName: r.warehouse_name,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+function mapPointsRedemptionRow(r) {
+  return {
+    id: r.id,
+    redemptionSkuCode: r.redemption_sku_code,
+    redemptionSkuName: r.redemption_sku_name,
+    site: r.site,
+    redemptionCategory: r.redemption_category,
+    price: r.price,
+    currency: r.currency,
+    pointsRequired: r.points_required,
+    pointsPerCurrencyUnit: r.points_per_currency_unit,
+    extraFields: r.extra_fields || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 // ─── CRUD API ─────────────────────────────────────────────────────────────────
 
 // SKU 配置
-router.get("/sku", (req, res) => res.json(query("SELECT * FROM sku_configs ORDER BY id DESC")));
+router.get("/sku", (req, res) => res.json(query("SELECT * FROM sku_configs ORDER BY id DESC").map(mapSkuRow)));
 router.post("/sku", (req, res) => {
   const { id, skuCode, skuNameCn, skuNameEn, skuCategory, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -235,7 +340,7 @@ router.post("/sku", (req, res) => {
 router.delete("/sku/:id", (req, res) => { run("DELETE FROM sku_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 汇率配置
-router.get("/exchange-rate", (req, res) => res.json(query("SELECT * FROM exchange_rates ORDER BY period DESC, country")));
+router.get("/exchange-rate", (req, res) => res.json(query("SELECT * FROM exchange_rates ORDER BY period DESC, country").map(mapExchangeRateRow)));
 router.post("/exchange-rate", (req, res) => {
   const { id, period, country, currency, rateToRmb, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -251,7 +356,7 @@ router.post("/exchange-rate", (req, res) => {
 router.delete("/exchange-rate/:id", (req, res) => { run("DELETE FROM exchange_rates WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 关税配置
-router.get("/tariff", (req, res) => res.json(query("SELECT * FROM tariff_configs ORDER BY id DESC")));
+router.get("/tariff", (req, res) => res.json(query("SELECT * FROM tariff_configs ORDER BY id DESC").map(mapTariffRow)));
 router.post("/tariff", (req, res) => {
   const { id, skuCode, productNameCn, productNameEn, exportHsCode, importCountry, importHsCode, tariffRate, declaredPricePerSku, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -267,7 +372,7 @@ router.post("/tariff", (req, res) => {
 router.delete("/tariff/:id", (req, res) => { run("DELETE FROM tariff_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 头程配置
-router.get("/freight/sku", (req, res) => res.json(query("SELECT * FROM freight_by_sku ORDER BY id DESC")));
+router.get("/freight/sku", (req, res) => res.json(query("SELECT * FROM freight_by_sku ORDER BY id DESC").map(mapFreightSkuRow)));
 router.post("/freight/sku", (req, res) => {
   const { id, skuCode, destination, transportMode, pricePerSku, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -282,7 +387,7 @@ router.post("/freight/sku", (req, res) => {
 });
 router.delete("/freight/sku/:id", (req, res) => { run("DELETE FROM freight_by_sku WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
-router.get("/freight/category", (req, res) => res.json(query("SELECT * FROM freight_by_category ORDER BY id DESC")));
+router.get("/freight/category", (req, res) => res.json(query("SELECT * FROM freight_by_category ORDER BY id DESC").map(mapFreightCategoryRow)));
 router.post("/freight/category", (req, res) => {
   const { id, categoryName, destination, transportMode, pricePerCategory, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -297,7 +402,7 @@ router.post("/freight/category", (req, res) => {
 });
 router.delete("/freight/category/:id", (req, res) => { run("DELETE FROM freight_by_category WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
-router.get("/freight/fallback", (req, res) => res.json(query("SELECT * FROM freight_by_category_only ORDER BY id DESC")));
+router.get("/freight/fallback", (req, res) => res.json(query("SELECT * FROM freight_by_category_only ORDER BY id DESC").map(mapFreightFallbackRow)));
 router.post("/freight/fallback", (req, res) => {
   const { id, categoryName, transportMode, pricePerCategory, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -313,7 +418,7 @@ router.post("/freight/fallback", (req, res) => {
 router.delete("/freight/fallback/:id", (req, res) => { run("DELETE FROM freight_by_category_only WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 尾程配置
-router.get("/last-mile", (req, res) => res.json(query("SELECT * FROM last_mile_configs ORDER BY id DESC")));
+router.get("/last-mile", (req, res) => res.json(query("SELECT * FROM last_mile_configs ORDER BY id DESC").map(mapLastMileRow)));
 router.post("/last-mile", (req, res) => {
   const { id, fileSource, logisticsProvider, countryName, warehouseName, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
@@ -329,7 +434,7 @@ router.post("/last-mile", (req, res) => {
 router.delete("/last-mile/:id", (req, res) => { run("DELETE FROM last_mile_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 积分兑换匹配表
-router.get("/points-redemption", (req, res) => res.json(query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code")));
+router.get("/points-redemption", (req, res) => res.json(query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code").map(mapPointsRedemptionRow)));
 router.post("/points-redemption", (req, res) => {
   const { id, redemptionSkuCode, redemptionSkuName, site, redemptionCategory, price, currency, pointsRequired, pointsPerCurrencyUnit, extraFields } = req.body;
   const extraFieldsVal = extraFields || null;
