@@ -147,7 +147,6 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
           if (!skuCode || !skuNameCn) { skipped++; continue; }
           const extraFields = extractExtraFields(headerRow, row);
           const existing = query("SELECT id FROM sku_configs WHERE sku_code = ?", [String(skuCode).trim()]);
-          if (existing.length > 0 && mode === "incremental") { skipped++; continue; }
           if (existing.length > 0) {
             run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, extra_fields=?, updated_at=? WHERE sku_code=?",
               [String(skuNameCn), String(skuNameEn || ""), String(skuCategory || ""), extraFields, Date.now(), String(skuCode).trim()]);
