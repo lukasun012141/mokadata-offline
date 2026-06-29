@@ -1,5 +1,6 @@
 /**
  * 参数配置 REST API 路由
+ * v3-debug-2026: 添加调试日志和版本检测端点
  */
 const express = require("express");
 const multer = require("multer");
@@ -61,14 +62,12 @@ const TEMPLATES = {
 
 // ─── 辅助：提取扩展字段 ────────────────────────────────────────────────────────
 /**
- * 给定模板标准列数和 Excel 行数据及表头，提取超出标准列的额外字段
+ * 把所有列（包括固定列）全部存入 extraFields，不做任何排除
+ * 策略：第一行有多少列，就存多少列，不限制列数
  * @param {string[]} headerRow - Excel 第一行（列名）
  * @param {any[]} dataRow - 数据行
- * @param {number} standardColCount - 模板标准列数
  * @returns {string|null} JSON 字符串或 null
  */
-// 把所有列（包括固定列）全部存入 extraFields，不做任何排除
-// 策略：第一行有多少列，就存多少列，不限制列数
 function extractExtraFields(headerRow, dataRow) {
   const extra = {};
   for (let i = 0; i < headerRow.length; i++) {
@@ -81,6 +80,15 @@ function extractExtraFields(headerRow, dataRow) {
   }
   return Object.keys(extra).length > 0 ? JSON.stringify(extra) : null;
 }
+
+// ─── 版本检测端点（调试用）────────────────────────────────────────────────────
+router.get("/debug-version", (req, res) => {
+  res.json({
+    version: "v3-debug-2026",
+    hasExtractFn: typeof extractExtraFields === "function",
+    message: "如果你看到这条消息，说明 paramsRouter.js 已经是最新版本（v3-debug-2026）"
+  });
+});
 
 // ─── 下载模板 ─────────────────────────────────────────────────────────────────
 router.get("/template/:type", (req, res) => {
@@ -118,6 +126,19 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
     if (rows.length < 2) return res.json({ inserted: 0, skipped: 0 });
 
     const headerRow = rows[0].map(h => String(h || "").trim());
+
+    // ── DEBUG v3: 打印表头和第一行数据 ──────────────────────────────────────
+    console.log("[DEBUG-v3] ===== 开始导入 =====");
+    console.log("[DEBUG-v3] type:", type, "| mode:", mode);
+    console.log("[DEBUG-v3] 表头列数:", headerRow.length);
+    console.log("[DEBUG-v3] headerRow:", JSON.stringify(headerRow));
+    if (rows.length > 1) {
+      console.log("[DEBUG-v3] 第一行数据:", JSON.stringify(rows[1]));
+      const testExtra = extractExtraFields(headerRow, rows[1]);
+      console.log("[DEBUG-v3] 第一行 extractExtraFields 结果:", testExtra);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // 跳过标题行
     const dataRows = rows.slice(1).filter(r => r.some(c => c !== ""));
 
@@ -210,8 +231,10 @@ router.post("/import/:type", upload.single("file"), (req, res) => {
       }
     }
 
+    console.log("[DEBUG-v3] 导入完成: inserted=" + inserted + ", skipped=" + skipped);
     res.json({ inserted, skipped });
   } catch (e) {
+    console.error("[DEBUG-v3] 导入出错:", e.message);
     res.status(500).json({ message: e.message });
   }
 });

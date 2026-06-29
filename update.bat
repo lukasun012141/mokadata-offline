@@ -1,40 +1,63 @@
 @echo off
+chcp 65001 >nul
 title MokaData Update
-
 set "INSTALL_DIR=%~dp0"
 if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
 
-set "COMMIT=1dcfe2a1b903c2afc84640e630337a8c63ba8084"
-set "CDN=https://cdn.jsdelivr.net/gh/lukasun012141/mokadata-offline@%COMMIT%"
+set "REPO=lukasun012141/mokadata-offline"
+set "BRANCH=main"
 
-where powershell >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] PowerShell not found
-    pause
-    exit /b 1
+echo [1/4] Checking network...
+
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/%REPO%/%BRANCH%/server/index.js' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    set "CDN=https://raw.githubusercontent.com/%REPO%/%BRANCH%"
+    echo     [OK] raw.githubusercontent.com
+    goto :do_update
 )
 
-echo Checking network...
-powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%CDN%/server/index.js' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Cannot connect to cdn.jsdelivr.net
-    pause
-    exit /b 1
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://ghproxy.net/https://raw.githubusercontent.com/%REPO%/%BRANCH%/server/index.js' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    set "CDN=https://ghproxy.net/https://raw.githubusercontent.com/%REPO%/%BRANCH%"
+    echo     [OK] ghproxy.net
+    goto :do_update
 )
-echo Network OK
 
-echo [1/3] Stopping MokaData...
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://gh.llkk.cc/https://raw.githubusercontent.com/%REPO%/%BRANCH%/server/index.js' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    set "CDN=https://gh.llkk.cc/https://raw.githubusercontent.com/%REPO%/%BRANCH%"
+    echo     [OK] gh.llkk.cc
+    goto :do_update
+)
+
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%/server/index.js' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    set "CDN=https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%"
+    echo     [OK] cdn.jsdelivr.net
+    goto :do_update
+)
+
+echo [ERROR] Cannot connect to any update server.
+echo Please check your network and try again.
+pause
+exit /b 1
+
+:do_update
+echo     Source: %CDN%
+echo.
+
+echo [2/4] Stopping MokaData...
 taskkill /F /IM node.exe /T >nul 2>&1
 timeout /t 2 /nobreak >nul
-echo Done
+echo     Done
 
-echo [2/3] Updating server files...
+echo [3/4] Updating server files...
 call :download "server/index.js"
 call :download "server/db.js"
 call :download "server/paramsRouter.js"
 call :download "server/uploadRouter.js"
 
-echo [3/3] Updating frontend files...
+echo [4/4] Updating frontend files...
 call :download "client/dist/index.html"
 call :download "client/dist/assets/ParamsPage.js"
 call :download "client/dist/assets/BusinessPage.js"
@@ -69,11 +92,14 @@ call :download "client/dist/assets/truck.js"
 call :download "client/dist/assets/zh-CN.js"
 
 echo.
-echo ===== Update complete! Restarting MokaData... =====
+echo ===================================================
+echo  Update complete! Restarting MokaData...
+echo ===================================================
 echo.
 timeout /t 1 /nobreak >nul
 start "" "%INSTALL_DIR%\start.bat"
-echo MokaData started. Press Ctrl+Shift+R in browser to hard refresh.
+echo MokaData started.
+echo Press Ctrl+Shift+R in browser to hard refresh.
 echo.
 pause
 exit /b 0

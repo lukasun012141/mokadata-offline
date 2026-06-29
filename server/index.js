@@ -733,6 +733,151 @@ paramsApp.post("/points-redemption", (req, res) => {
 paramsApp.delete("/points-redemption/:id", (req, res) => { run("DELETE FROM points_redemption_config WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 app.use("/api/params", paramsApp);
 
+// ─── 内置更新接口 ─────────────────────────────────────────────────────────────
+const https = require("https");
+const http = require("http");
+const fs = require("fs");
+
+const UPDATE_REPO = "lukasun012141/mokadata-offline";
+const UPDATE_BRANCH = "main";
+const UPDATE_FILES = [
+  "server/index.js",
+  "server/db.js",
+  "server/paramsRouter.js",
+  "server/uploadRouter.js",
+  "client/dist/index.html",
+  "client/dist/assets/ParamsPage.js",
+  "client/dist/assets/BusinessPage.js",
+  "client/dist/assets/DashboardPage.js",
+  "client/dist/assets/WorkflowsPage.js",
+  "client/dist/assets/ReportsPage.js",
+  "client/dist/assets/KnowledgePage.js",
+  "client/dist/assets/FilesPage.js",
+  "client/dist/assets/SettingsPage.js",
+  "client/dist/assets/NotFound.js",
+  "client/dist/assets/index.js",
+  "client/dist/assets/index2.js",
+  "client/dist/assets/index3.js",
+  "client/dist/assets/index.css",
+  "client/dist/assets/button.js",
+  "client/dist/assets/circle-alert.js",
+  "client/dist/assets/circle-check.js",
+  "client/dist/assets/download.js",
+  "client/dist/assets/eye.js",
+  "client/dist/assets/input.js",
+  "client/dist/assets/loader-circle.js",
+  "client/dist/assets/plus.js",
+  "client/dist/assets/refresh-cw.js",
+  "client/dist/assets/save.js",
+  "client/dist/assets/select.js",
+  "client/dist/assets/table.js",
+  "client/dist/assets/tabs.js",
+  "client/dist/assets/tag.js",
+  "client/dist/assets/textarea.js",
+  "client/dist/assets/trash-2.js",
+  "client/dist/assets/truck.js",
+  "client/dist/assets/zh-CN.js",
+];
+
+const CDN_SOURCES = [
+  `https://raw.githubusercontent.com/${UPDATE_REPO}/${UPDATE_BRANCH}`,
+  `https://ghproxy.net/https://raw.githubusercontent.com/${UPDATE_REPO}/${UPDATE_BRANCH}`,
+  `https://gh.llkk.cc/https://raw.githubusercontent.com/${UPDATE_REPO}/${UPDATE_BRANCH}`,
+  `https://cdn.jsdelivr.net/gh/${UPDATE_REPO}@${UPDATE_BRANCH}`,
+];
+
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const proto = url.startsWith("https") ? https : http;
+    const file = fs.createWriteStream(destPath);
+    const req = proto.get(url, { timeout: 30000 }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        file.close();
+        return downloadFile(res.headers.location, destPath).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        file.close();
+        fs.unlink(destPath, () => {});
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      res.pipe(file);
+      file.on("finish", () => file.close(resolve));
+    });
+    req.on("error", (e) => { file.close(); fs.unlink(destPath, () => {}); reject(e); });
+    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+  });
+}
+
+async function findWorkingCdn() {
+  for (const cdn of CDN_SOURCES) {
+    try {
+      await new Promise((resolve, reject) => {
+        const proto = cdn.startsWith("https") ? https : http;
+        const req = proto.get(`${cdn}/server/index.js`, { timeout: 8000 }, (res) => {
+          res.resume();
+          res.statusCode === 200 ? resolve() : reject(new Error(`HTTP ${res.statusCode}`));
+        });
+        req.on("error", reject);
+        req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+      });
+      return cdn;
+    } catch (e) {
+      // try next
+    }
+  }
+  return null;
+}
+
+// SSE 更新接口
+app.get("/api/system/update", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  const send = (type, msg) => {
+    res.write(`data: ${JSON.stringify({ type, msg })}\n\n`);
+  };
+
+  try {
+    send("info", "正在检测可用下载源...");
+    const cdn = await findWorkingCdn();
+    if (!cdn) {
+      send("error", "无法连接到任何下载源，请检查网络后重试");
+      return res.end();
+    }
+    send("info", `使用下载源: ${cdn.replace("https://", "")}`);
+
+    const INSTALL_DIR = path.join(__dirname, "..");
+    let ok = 0, fail = 0;
+    for (let i = 0; i < UPDATE_FILES.length; i++) {
+      const file = UPDATE_FILES[i];
+      const destPath = path.join(INSTALL_DIR, file.replace(/\//g, path.sep));
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      try {
+        await downloadFile(`${cdn}/${file}`, destPath);
+        ok++;
+        send("progress", `[${i + 1}/${UPDATE_FILES.length}] OK: ${file}`);
+      } catch (e) {
+        fail++;
+        send("warn", `[${i + 1}/${UPDATE_FILES.length}] FAIL: ${file} (${e.message})`);
+      }
+    }
+
+    send("info", `下载完成：成功 ${ok} 个，失败 ${fail} 个`);
+    send("done", "更新完成！服务将在 3 秒后自动重启，请稍后刷新页面（Ctrl+Shift+R）");
+    res.end();
+
+    // 延迟重启进程
+    setTimeout(() => {
+      console.log("[Update] Restarting server...");
+      process.exit(0); // start.bat 里有 node 进程守护，会自动重启
+    }, 3000);
+  } catch (e) {
+    send("error", `更新失败: ${e.message}`);
+    res.end();
+  }
+});
 
   // 健康检查
   app.get("/api/health", (req, res) => res.json({ status: "ok", version: "1.0.0" }));
