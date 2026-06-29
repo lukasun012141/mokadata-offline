@@ -828,6 +828,103 @@ async function findWorkingCdn() {
   return null;
 }
 
+// ─── 上传补丁包接口 ──────────────────────────────────────────────────────────
+const os = require("os");
+const { execSync } = require("child_process");
+const multerPatch = require("multer")({ storage: require("multer").memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+app.post("/api/system/upload-patch", multerPatch.single("patch"), async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  const send = (type, msg) => {
+    try { res.write(`data: ${JSON.stringify({ type, msg })}\n\n`); } catch(e) {}
+  };
+
+  if (!req.file) {
+    send("error", "未收到文件，请重新上传");
+    return res.end();
+  }
+
+  try {
+    send("info", `收到补丁包: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
+    send("info", "正在解析补丁包...");
+
+    // 将 zip 写入临时文件
+    const tmpZip = path.join(os.tmpdir(), `moka_patch_${Date.now()}.zip`);
+    fs.writeFileSync(tmpZip, req.file.buffer);
+
+    // 解压到临时目录
+    const tmpDir = path.join(os.tmpdir(), `moka_patch_extract_${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    // 用 Node 内置 child_process 调用系统解压（Windows 用 PowerShell，Linux/Mac 用 unzip）
+    try {
+      if (process.platform === "win32") {
+        execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${tmpZip}' -DestinationPath '${tmpDir}' -Force"`, { timeout: 30000 });
+      } else {
+        execSync(`unzip -o "${tmpZip}" -d "${tmpDir}"`, { timeout: 30000 });
+      }
+    } catch (e) {
+      send("error", `解压失败: ${e.message}`);
+      fs.unlinkSync(tmpZip);
+      return res.end();
+    }
+    fs.unlinkSync(tmpZip);
+    send("info", "解压成功，开始安装文件...");
+
+    // 找到解压后的根目录（可能有一层子文件夹）
+    const INSTALL_DIR = path.join(__dirname, "..");
+    let extractRoot = tmpDir;
+    const topItems = fs.readdirSync(tmpDir);
+    // 如果只有一个子文件夹（如 moka_patch_full/），进入该子文件夹
+    if (topItems.length === 1) {
+      const sub = path.join(tmpDir, topItems[0]);
+      if (fs.statSync(sub).isDirectory()) extractRoot = sub;
+    }
+
+    // 递归复制所有文件到安装目录
+    let copied = 0;
+    function copyDir(src, dest) {
+      fs.mkdirSync(dest, { recursive: true });
+      for (const item of fs.readdirSync(src)) {
+        const srcPath = path.join(src, item);
+        const destPath = path.join(dest, item);
+        const stat = fs.statSync(srcPath);
+        if (stat.isDirectory()) {
+          copyDir(srcPath, destPath);
+        } else {
+          // 跳过 README.txt 和 .bat 文件（避免覆盖 start.bat）
+          if (item === "README.txt") continue;
+          // 跳过 start.bat 和 install.bat，但允许 update.bat
+          if (item === "start.bat" || item === "install.bat") continue;
+          fs.copyFileSync(srcPath, destPath);
+          copied++;
+          send("progress", `已安装: ${destPath.replace(INSTALL_DIR, "").replace(/\\/g, "/")}`);
+        }
+      }
+    }
+    copyDir(extractRoot, INSTALL_DIR);
+
+    // 清理临时目录
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
+
+    send("info", `安装完成，共更新 ${copied} 个文件`);
+    send("done", "补丁安装成功！服务将在 3 秒后自动重启，请稍后按 Ctrl+Shift+R 刷新页面");
+    res.end();
+
+    setTimeout(() => {
+      console.log("[Patch] Restarting server after patch install...");
+      process.exit(0);
+    }, 3000);
+  } catch (e) {
+    send("error", `安装失败: ${e.message}`);
+    res.end();
+  }
+});
+
 // SSE 更新接口
 app.get("/api/system/update", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
