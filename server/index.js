@@ -524,23 +524,77 @@ const TEMPLATES = {
   },
 };
 
-// ─── 下载模板 ─────────────────────────────────────────────────────────────────
+// ─── 下载模板 / 导出数据 ──────────────────────────────────────────────────────
+// mode=blank  → 下载空白模板（仅表头，来自当前数据库列头；无数据时用 TEMPLATES 默认列头）
+// mode=data   → 下载当前全量数据
+const TABLE_MAP_FOR_EXPORT = {
+  sku: "sku_configs",
+  exchange_rate: "exchange_rates",
+  tariff: "tariff_configs",
+  freight_sku: "freight_by_sku",
+  freight_category: "freight_by_category",
+  freight_fallback: "freight_by_category_only",
+  last_mile: "last_mile_configs",
+  "points-redemption": "points_redemption_config",
+};
+
 paramsApp.get("/template/:type", (req, res) => {
-  const tpl = TEMPLATES[req.params.type];
-  if (!tpl) return res.status(404).json({ message: "模板不存在" });
+  const { type } = req.params;
+  const mode = req.query.mode || "blank"; // blank | data
+  const tpl = TEMPLATES[type];
+  const tableName = TABLE_MAP_FOR_EXPORT[type];
 
+  // 从数据库读取当前数据，提取动态列头
+  let rows = [];
+  let dynamicHeaders = null;
+  if (tableName) {
+    try {
+      rows = query(`SELECT * FROM ${tableName} ORDER BY id ASC`);
+      // 从 extra_fields 推断列头（取第一条有数据的行）
+      for (const r of rows) {
+        if (r.extra_fields) {
+          try {
+            const ef = JSON.parse(r.extra_fields);
+            dynamicHeaders = Object.keys(ef);
+            break;
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 列头优先级：动态列头 > TEMPLATES 默认列头
+  const headers = dynamicHeaders || (tpl ? tpl.headers : []);
+  if (!headers.length) return res.status(404).json({ message: "无法确定列头，请先上传数据" });
+
+  const sheetName = tpl ? tpl.name : type;
   const wb = XLSX.utils.book_new();
-  const wsData = [tpl.headers, tpl.example];
+  let wsData;
+
+  if (mode === "data") {
+    // 导出全量数据
+    wsData = [headers];
+    for (const r of rows) {
+      let ef = {};
+      try { ef = r.extra_fields ? JSON.parse(r.extra_fields) : {}; } catch (e) {}
+      wsData.push(headers.map(h => ef[h] !== undefined ? ef[h] : ""));
+    }
+  } else {
+    // 空白模板：仅表头，加一行示例（如果有 TEMPLATES 默认示例）
+    wsData = [headers];
+    if (tpl && tpl.example && !dynamicHeaders) {
+      wsData.push(tpl.example);
+    }
+  }
+
   const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws["!cols"] = headers.map(() => ({ wch: 20 }));
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  // 设置列宽
-  ws["!cols"] = tpl.headers.map(() => ({ wch: 20 }));
-
-  // 标题行样式（标注必填）
-  XLSX.utils.book_append_sheet(wb, ws, tpl.name);
-
+  const suffix = mode === "data" ? "_数据" : "_模板";
+  const fileName = sheetName + suffix;
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(tpl.name)}.xlsx`);
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}.xlsx`);
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.send(buf);
 });
