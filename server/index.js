@@ -33,14 +33,14 @@ const OFFLINE_USER = {
 };
 
 // 字段名映射：下划线 → 驼峰（与在线版 Drizzle ORM 保持一致）
-function mapSkuRow(r) { return { id: r.id, skuCode: r.sku_code, skuNameCn: r.sku_name_cn, skuNameEn: r.sku_name_en, skuCategory: r.sku_category, extraFields: r.extra_fields ? (typeof r.extra_fields === 'string' ? JSON.parse(r.extra_fields) : r.extra_fields) : null, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapExchangeRateRow(r) { return { id: r.id, period: r.period, country: r.country, currency: r.currency, rateToRmb: r.rate_to_rmb, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapTariffRow(r) { return { id: r.id, skuCode: r.sku_code, productNameCn: r.product_name_cn, productNameEn: r.product_name_en, exportHsCode: r.export_hs_code, importCountry: r.import_country, importHsCode: r.import_hs_code, tariffRate: r.tariff_rate, declaredPricePerSku: r.declared_price_per_sku, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapFreightBySkuRow(r) { return { id: r.id, skuCode: r.sku_code, destination: r.destination, transportMode: r.transport_mode, pricePerSku: r.price_per_sku, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapFreightByCategoryRow(r) { return { id: r.id, categoryName: r.category_name, destination: r.destination, transportMode: r.transport_mode, pricePerCategory: r.price_per_category, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapFreightByCategoryOnlyRow(r) { return { id: r.id, categoryName: r.category_name, transportMode: r.transport_mode, pricePerCategory: r.price_per_category, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapLastMileRow(r) { return { id: r.id, fileSource: r.file_source, logisticsProvider: r.logistics_provider, countryName: r.country_name, warehouseName: r.warehouse_name, createdAt: r.created_at, updatedAt: r.updated_at }; }
-function mapPointsRedemptionRow(r) { return { id: r.id, redemptionSkuCode: r.redemption_sku_code, redemptionSkuName: r.redemption_sku_name, site: r.site, redemptionCategory: r.redemption_category, price: r.price, currency: r.currency, pointsRequired: r.points_required, pointsPerCurrencyUnit: r.points_per_currency_unit, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapSkuRow(r) { return { id: r.id, skuCode: r.sku_code, skuNameCn: r.sku_name_cn, skuNameEn: r.sku_name_en, skuCategory: r.sku_category, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapExchangeRateRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapTariffRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapFreightBySkuRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapFreightByCategoryRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapFreightByCategoryOnlyRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapLastMileRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
+function mapPointsRedemptionRow(r) { return { id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
 
 // tRPC + superjson 标准响应格式
 // 前端使用 superjson transformer，响应必须包含 {json, meta} 结构
@@ -200,7 +200,10 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertSku")) {
       if (input?.skuCode) {
-        const extraFieldsVal = input.extraFields != null ? JSON.stringify(input.extraFields) : null;
+        // extraFields 可能是字符串（前端直接传 JSON 字符串）或对象，统一存为字符串
+        const extraFieldsVal = input.extraFields != null
+          ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields))
+          : null;
         const existing = query("SELECT id FROM sku_configs WHERE sku_code=?", [input.skuCode]);
         if (existing.length > 0) {
           run("UPDATE sku_configs SET sku_name_cn=?, sku_name_en=?, sku_category=?, extra_fields=?, updated_at=? WHERE sku_code=?",
@@ -224,8 +227,12 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertExchangeRate")) {
       if (input) {
-        run("INSERT INTO exchange_rates (period, country, currency, rate_to_rmb) VALUES (?,?,?,?)",
-          [input.period, input.country, input.currency, input.rateToRmb]);
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
+        if (input.id) {
+          run("UPDATE exchange_rates SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), input.id]);
+        } else {
+          run("INSERT INTO exchange_rates (extra_fields) VALUES (?)", [efVal]);
+        }
       }
       return trpcOkOne({ success: true });
     }
@@ -241,8 +248,12 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertTariff")) {
       if (input) {
-        run("INSERT INTO tariff_configs (sku_code, product_name_cn, product_name_en, export_hs_code, import_country, import_hs_code, tariff_rate, declared_price_per_sku) VALUES (?,?,?,?,?,?,?,?)",
-          [input.skuCode, input.productNameCn, input.productNameEn, input.exportHsCode, input.importCountry, input.importHsCode, input.tariffRate, input.declaredPricePerSku]);
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
+        if (input.id) {
+          run("UPDATE tariff_configs SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), input.id]);
+        } else {
+          run("INSERT INTO tariff_configs (extra_fields) VALUES (?)", [efVal]);
+        }
       }
       return trpcOkOne({ success: true });
     }
@@ -258,8 +269,12 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertFreightBySku")) {
       if (input) {
-        run("INSERT INTO freight_by_sku (sku_code, destination, transport_mode, price_per_sku) VALUES (?,?,?,?)",
-          [input.skuCode, input.destination, input.transportMode, input.pricePerSku]);
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
+        if (input.id) {
+          run("UPDATE freight_by_sku SET extra_fields=? WHERE id=?", [efVal, input.id]);
+        } else {
+          run("INSERT INTO freight_by_sku (extra_fields) VALUES (?)", [efVal]);
+        }
       }
       return trpcOkOne({ success: true });
     }
@@ -275,8 +290,12 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertFreightByCategory")) {
       if (input) {
-        run("INSERT INTO freight_by_category (category_name, destination, transport_mode, price_per_category) VALUES (?,?,?,?)",
-          [input.categoryName, input.destination, input.transportMode, input.pricePerCategory]);
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
+        if (input.id) {
+          run("UPDATE freight_by_category SET extra_fields=? WHERE id=?", [efVal, input.id]);
+        } else {
+          run("INSERT INTO freight_by_category (extra_fields) VALUES (?)", [efVal]);
+        }
       }
       return trpcOkOne({ success: true });
     }
@@ -292,8 +311,12 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertFreightByCategoryOnly")) {
       if (input) {
-        run("INSERT INTO freight_by_category_only (category_name, transport_mode, price_per_category) VALUES (?,?,?)",
-          [input.categoryName, input.transportMode, input.pricePerCategory]);
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
+        if (input.id) {
+          run("UPDATE freight_by_category_only SET extra_fields=? WHERE id=?", [efVal, input.id]);
+        } else {
+          run("INSERT INTO freight_by_category_only (extra_fields) VALUES (?)", [efVal]);
+        }
       }
       return trpcOkOne({ success: true });
     }
@@ -309,8 +332,12 @@ async function handleRoute(routeName, input) {
     }
     if (routeName.includes("params.upsertLastMile")) {
       if (input) {
-        run("INSERT INTO last_mile_configs (file_source, logistics_provider, country_name, warehouse_name) VALUES (?,?,?,?)",
-          [input.fileSource, input.logisticsProvider, input.countryName, input.warehouseName]);
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
+        if (input.id) {
+          run("UPDATE last_mile_configs SET extra_fields=? WHERE id=?", [efVal, input.id]);
+        } else {
+          run("INSERT INTO last_mile_configs (extra_fields) VALUES (?)", [efVal]);
+        }
       }
       return trpcOkOne({ success: true });
     }
@@ -321,17 +348,16 @@ async function handleRoute(routeName, input) {
 
     // ── params.pointsRedemption ──────────────────────────────────────────────
     if (routeName.includes("params.listPointsRedemption")) {
-      const rows = query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code");
+      const rows = query("SELECT * FROM points_redemption_config ORDER BY id DESC");
       return trpcOkOne(rows.map(mapPointsRedemptionRow));
     }
     if (routeName.includes("params.upsertPointsRedemption")) {
       if (input) {
+        const efVal = input.extraFields != null ? (typeof input.extraFields === 'string' ? input.extraFields : JSON.stringify(input.extraFields)) : null;
         if (input.id) {
-          run("UPDATE points_redemption_config SET redemption_sku_code=?, redemption_sku_name=?, site=?, redemption_category=?, price=?, currency=?, points_required=?, points_per_currency_unit=?, updated_at=? WHERE id=?",
-            [input.redemptionSkuCode, input.redemptionSkuName, input.site, input.redemptionCategory || null, parseFloat(input.price) || 0, input.currency, parseInt(input.pointsRequired) || 0, input.pointsPerCurrencyUnit != null ? parseFloat(input.pointsPerCurrencyUnit) : null, Date.now(), input.id]);
+          run("UPDATE points_redemption_config SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), input.id]);
         } else {
-          run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
-            [input.redemptionSkuCode, input.redemptionSkuName, input.site, input.redemptionCategory || null, parseFloat(input.price) || 0, input.currency, parseInt(input.pointsRequired) || 0, input.pointsPerCurrencyUnit != null ? parseFloat(input.pointsPerCurrencyUnit) : null]);
+          run("INSERT INTO points_redemption_config (extra_fields) VALUES (?)", [efVal]);
         }
       }
       return trpcOkOne({ success: true });
@@ -554,13 +580,15 @@ paramsApp.post("/import/:type", paramsUpload.single("file"), (req, res) => {
       if (tableMap[type]) run(`DELETE FROM ${tableMap[type]}`);
     }
 
+    // 提取标题行，用于所有类型的动态列名
+    const headerRow = rows[0].map(h => String(h || "").trim());
+
     for (const row of dataRows) {
       try {
         if (type === "sku") {
+          // SKU 保留原有逻辑：前4列固定 + 后续扩展列
           const [skuCode, skuNameCn, skuNameEn, skuCategory, ...extraCols] = row;
           if (!skuCode || !skuNameCn) { skipped++; continue; }
-          // 读取标题行，提取第5列起的额外字段名
-          const headerRow = rows[0].map(h => String(h || "").trim());
           const extraFieldNames = headerRow.slice(4);
           let extraFieldsVal = null;
           if (extraFieldNames.length > 0 && extraCols.length > 0) {
@@ -583,50 +611,35 @@ paramsApp.post("/import/:type", paramsUpload.single("file"), (req, res) => {
               [String(skuCode).trim(), String(skuNameCn), String(skuNameEn || ""), String(skuCategory || ""), extraFieldsVal]);
           }
           inserted++;
-        } else if (type === "exchange_rate") {
-          const [period, country, currency, rateToRmb] = row;
-          if (!period || !country || !currency || !rateToRmb) { skipped++; continue; }
-          run("INSERT INTO exchange_rates (period, country, currency, rate_to_rmb) VALUES (?,?,?,?)",
-            [String(period), String(country), String(currency), parseFloat(rateToRmb)]);
-          inserted++;
-        } else if (type === "tariff") {
-          const [skuCode, productNameCn, productNameEn, exportHsCode, importCountry, importHsCode, tariffRate, declaredPrice] = row;
-          if (!skuCode || !importCountry) { skipped++; continue; }
-          run("INSERT INTO tariff_configs (sku_code, product_name_cn, product_name_en, export_hs_code, import_country, import_hs_code, tariff_rate, declared_price_per_sku) VALUES (?,?,?,?,?,?,?,?)",
-            [String(skuCode), String(productNameCn || ""), String(productNameEn || ""), String(exportHsCode || ""), String(importCountry), String(importHsCode || ""), tariffRate ? parseFloat(tariffRate) : null, declaredPrice ? parseFloat(declaredPrice) : null]);
-          inserted++;
-        } else if (type === "freight_sku") {
-          const [skuCode, destination, transportMode, pricePerSku] = row;
-          if (!skuCode || !destination || !transportMode || !pricePerSku) { skipped++; continue; }
-          run("INSERT INTO freight_by_sku (sku_code, destination, transport_mode, price_per_sku) VALUES (?,?,?,?)",
-            [String(skuCode), String(destination), String(transportMode), parseFloat(pricePerSku)]);
-          inserted++;
-        } else if (type === "freight_category") {
-          const [categoryName, destination, transportMode, pricePerCategory] = row;
-          if (!categoryName || !destination || !transportMode || !pricePerCategory) { skipped++; continue; }
-          run("INSERT INTO freight_by_category (category_name, destination, transport_mode, price_per_category) VALUES (?,?,?,?)",
-            [String(categoryName), String(destination), String(transportMode), parseFloat(pricePerCategory)]);
-          inserted++;
-        } else if (type === "freight_fallback") {
-          const [categoryName, transportMode, pricePerCategory] = row;
-          if (!categoryName || !transportMode || !pricePerCategory) { skipped++; continue; }
-          run("INSERT INTO freight_by_category_only (category_name, transport_mode, price_per_category) VALUES (?,?,?)",
-            [String(categoryName), String(transportMode), parseFloat(pricePerCategory)]);
-          inserted++;
-        } else if (type === "last_mile") {
-          const [fileSource, logisticsProvider, countryName, warehouseName] = row;
-          if (!logisticsProvider || !countryName) { skipped++; continue; }
-          run("INSERT INTO last_mile_configs (file_source, logistics_provider, country_name, warehouse_name) VALUES (?,?,?,?)",
-            [String(fileSource || ""), String(logisticsProvider), String(countryName), String(warehouseName || "")]);
-          inserted++;
-        } else if (type === "points-redemption") {
-          const [redemptionSkuCode, redemptionSkuName, site, redemptionCategory, price, currency, pointsRequired, pointsPerCurrencyUnit] = row;
-          if (!redemptionSkuCode || !redemptionSkuName || !site || !currency || !pointsRequired) { skipped++; continue; }
-          run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
-            [String(redemptionSkuCode), String(redemptionSkuName), String(site), String(redemptionCategory || ""), parseFloat(price) || 0, String(currency), parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null]);
+        } else {
+          // 其他所有类型：所有列全部打包成 extra_fields，无条件 INSERT
+          const tableMap = {
+            exchange_rate: "exchange_rates",
+            tariff: "tariff_configs",
+            freight_sku: "freight_by_sku",
+            freight_category: "freight_by_category",
+            freight_fallback: "freight_by_category_only",
+            last_mile: "last_mile_configs",
+            "points-redemption": "points_redemption_config",
+          };
+          const tbl = tableMap[type];
+          if (!tbl) { skipped++; continue; }
+          // 把所有列打包成 JSON
+          const extra = {};
+          headerRow.forEach((name, idx) => {
+            const val = row[idx];
+            if (name && val !== undefined && val !== null && String(val).trim() !== "") {
+              extra[name] = String(val).trim();
+            }
+          });
+          // 至少有一列有值才插入
+          if (Object.keys(extra).length === 0) { skipped++; continue; }
+          const efVal = JSON.stringify(extra);
+          run(`INSERT INTO ${tbl} (extra_fields) VALUES (?)`, [efVal]);
           inserted++;
         }
       } catch (e) {
+        console.error('[Import Row Error]', e.message);
         skipped++;
       }
     }
@@ -656,103 +669,96 @@ paramsApp.post("/sku", (req, res) => {
 paramsApp.delete("/sku/:id", (req, res) => { run("DELETE FROM sku_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 汇率配置
-paramsApp.get("/exchange-rate", (req, res) => res.json(query("SELECT * FROM exchange_rates ORDER BY period DESC, country")));
+paramsApp.get("/exchange-rate", (req, res) => res.json(query("SELECT * FROM exchange_rates ORDER BY id DESC").map(mapExchangeRateRow)));
 paramsApp.post("/exchange-rate", (req, res) => {
-  const { id, period, country, currency, rateToRmb } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE exchange_rates SET period=?, country=?, currency=?, rate_to_rmb=?, updated_at=? WHERE id=?",
-      [period, country, currency, parseFloat(rateToRmb), Date.now(), id]);
+    run("UPDATE exchange_rates SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), id]);
   } else {
-    run("INSERT INTO exchange_rates (period, country, currency, rate_to_rmb) VALUES (?,?,?,?)",
-      [period, country, currency, parseFloat(rateToRmb)]);
+    run("INSERT INTO exchange_rates (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
 paramsApp.delete("/exchange-rate/:id", (req, res) => { run("DELETE FROM exchange_rates WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 关税配置
-paramsApp.get("/tariff", (req, res) => res.json(query("SELECT * FROM tariff_configs ORDER BY id DESC")));
+paramsApp.get("/tariff", (req, res) => res.json(query("SELECT * FROM tariff_configs ORDER BY id DESC").map(mapTariffRow)));
 paramsApp.post("/tariff", (req, res) => {
-  const { id, skuCode, productNameCn, productNameEn, exportHsCode, importCountry, importHsCode, tariffRate, declaredPricePerSku } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE tariff_configs SET sku_code=?, product_name_cn=?, product_name_en=?, export_hs_code=?, import_country=?, import_hs_code=?, tariff_rate=?, declared_price_per_sku=?, updated_at=? WHERE id=?",
-      [skuCode, productNameCn || "", productNameEn || "", exportHsCode || "", importCountry, importHsCode || "", tariffRate ? parseFloat(tariffRate) : null, declaredPricePerSku ? parseFloat(declaredPricePerSku) : null, Date.now(), id]);
+    run("UPDATE tariff_configs SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), id]);
   } else {
-    run("INSERT INTO tariff_configs (sku_code, product_name_cn, product_name_en, export_hs_code, import_country, import_hs_code, tariff_rate, declared_price_per_sku) VALUES (?,?,?,?,?,?,?,?)",
-      [skuCode, productNameCn || "", productNameEn || "", exportHsCode || "", importCountry, importHsCode || "", tariffRate ? parseFloat(tariffRate) : null, declaredPricePerSku ? parseFloat(declaredPricePerSku) : null]);
+    run("INSERT INTO tariff_configs (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
 paramsApp.delete("/tariff/:id", (req, res) => { run("DELETE FROM tariff_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 头程配置
-paramsApp.get("/freight/sku", (req, res) => res.json(query("SELECT * FROM freight_by_sku ORDER BY id DESC")));
+paramsApp.get("/freight/sku", (req, res) => res.json(query("SELECT * FROM freight_by_sku ORDER BY id DESC").map(r => ({ id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }))));
 paramsApp.post("/freight/sku", (req, res) => {
-  const { id, skuCode, destination, transportMode, pricePerSku } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE freight_by_sku SET sku_code=?, destination=?, transport_mode=?, price_per_sku=? WHERE id=?",
-      [skuCode, destination, transportMode, parseFloat(pricePerSku), id]);
+    run("UPDATE freight_by_sku SET extra_fields=? WHERE id=?", [efVal, id]);
   } else {
-    run("INSERT INTO freight_by_sku (sku_code, destination, transport_mode, price_per_sku) VALUES (?,?,?,?)",
-      [skuCode, destination, transportMode, parseFloat(pricePerSku)]);
+    run("INSERT INTO freight_by_sku (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
 paramsApp.delete("/freight/sku/:id", (req, res) => { run("DELETE FROM freight_by_sku WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
-paramsApp.get("/freight/category", (req, res) => res.json(query("SELECT * FROM freight_by_category ORDER BY id DESC")));
+paramsApp.get("/freight/category", (req, res) => res.json(query("SELECT * FROM freight_by_category ORDER BY id DESC").map(r => ({ id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }))));
 paramsApp.post("/freight/category", (req, res) => {
-  const { id, categoryName, destination, transportMode, pricePerCategory } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE freight_by_category SET category_name=?, destination=?, transport_mode=?, price_per_category=? WHERE id=?",
-      [categoryName, destination, transportMode, parseFloat(pricePerCategory), id]);
+    run("UPDATE freight_by_category SET extra_fields=? WHERE id=?", [efVal, id]);
   } else {
-    run("INSERT INTO freight_by_category (category_name, destination, transport_mode, price_per_category) VALUES (?,?,?,?)",
-      [categoryName, destination, transportMode, parseFloat(pricePerCategory)]);
+    run("INSERT INTO freight_by_category (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
 paramsApp.delete("/freight/category/:id", (req, res) => { run("DELETE FROM freight_by_category WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
-paramsApp.get("/freight/fallback", (req, res) => res.json(query("SELECT * FROM freight_by_category_only ORDER BY id DESC")));
+paramsApp.get("/freight/fallback", (req, res) => res.json(query("SELECT * FROM freight_by_category_only ORDER BY id DESC").map(r => ({ id: r.id, extraFields: r.extra_fields || null, createdAt: r.created_at, updatedAt: r.updated_at }))));
 paramsApp.post("/freight/fallback", (req, res) => {
-  const { id, categoryName, transportMode, pricePerCategory } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE freight_by_category_only SET category_name=?, transport_mode=?, price_per_category=? WHERE id=?",
-      [categoryName, transportMode, parseFloat(pricePerCategory), id]);
+    run("UPDATE freight_by_category_only SET extra_fields=? WHERE id=?", [efVal, id]);
   } else {
-    run("INSERT INTO freight_by_category_only (category_name, transport_mode, price_per_category) VALUES (?,?,?,?)",
-      [categoryName, transportMode, parseFloat(pricePerCategory)]);
+    run("INSERT INTO freight_by_category_only (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
 paramsApp.delete("/freight/fallback/:id", (req, res) => { run("DELETE FROM freight_by_category_only WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 尾程配置
-paramsApp.get("/last-mile", (req, res) => res.json(query("SELECT * FROM last_mile_configs ORDER BY id DESC")));
+paramsApp.get("/last-mile", (req, res) => res.json(query("SELECT * FROM last_mile_configs ORDER BY id DESC").map(mapLastMileRow)));
 paramsApp.post("/last-mile", (req, res) => {
-  const { id, fileSource, logisticsProvider, countryName, warehouseName } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE last_mile_configs SET file_source=?, logistics_provider=?, country_name=?, warehouse_name=? WHERE id=?",
-      [fileSource || "", logisticsProvider, countryName, warehouseName || "", id]);
+    run("UPDATE last_mile_configs SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), id]);
   } else {
-    run("INSERT INTO last_mile_configs (file_source, logistics_provider, country_name, warehouse_name) VALUES (?,?,?,?)",
-      [fileSource || "", logisticsProvider, countryName, warehouseName || ""]);
+    run("INSERT INTO last_mile_configs (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
 paramsApp.delete("/last-mile/:id", (req, res) => { run("DELETE FROM last_mile_configs WHERE id=?", [req.params.id]); res.json({ ok: true }); });
 
 // 积分兑换匹配表
-paramsApp.get("/points-redemption", (req, res) => res.json(query("SELECT * FROM points_redemption_config ORDER BY site, redemption_sku_code")));
+paramsApp.get("/points-redemption", (req, res) => res.json(query("SELECT * FROM points_redemption_config ORDER BY id DESC").map(mapPointsRedemptionRow)));
 paramsApp.post("/points-redemption", (req, res) => {
-  const { id, redemptionSkuCode, redemptionSkuName, site, redemptionCategory, price, currency, pointsRequired, pointsPerCurrencyUnit } = req.body;
+  const { id, extraFields } = req.body;
+  const efVal = extraFields != null ? (typeof extraFields === 'string' ? extraFields : JSON.stringify(extraFields)) : null;
   if (id) {
-    run("UPDATE points_redemption_config SET redemption_sku_code=?, redemption_sku_name=?, site=?, redemption_category=?, price=?, currency=?, points_required=?, points_per_currency_unit=?, updated_at=? WHERE id=?",
-      [redemptionSkuCode, redemptionSkuName, site, redemptionCategory || "", parseFloat(price) || 0, currency, parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null, Date.now(), id]);
+    run("UPDATE points_redemption_config SET extra_fields=?, updated_at=? WHERE id=?", [efVal, Date.now(), id]);
   } else {
-    run("INSERT INTO points_redemption_config (redemption_sku_code, redemption_sku_name, site, redemption_category, price, currency, points_required, points_per_currency_unit) VALUES (?,?,?,?,?,?,?,?)",
-      [redemptionSkuCode, redemptionSkuName, site, redemptionCategory || "", parseFloat(price) || 0, currency, parseInt(pointsRequired) || 0, pointsPerCurrencyUnit ? parseFloat(pointsPerCurrencyUnit) : null]);
+    run("INSERT INTO points_redemption_config (extra_fields) VALUES (?)", [efVal]);
   }
   res.json({ ok: true });
 });
