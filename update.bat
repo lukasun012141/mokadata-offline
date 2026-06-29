@@ -38,19 +38,52 @@ echo 网络连接正常，开始下载更新...
 echo.
 
 :: 停止正在运行的 MokaData 服务
-echo [1/3] 停止 MokaData 服务...
+echo [1/4] 停止 MokaData 服务...
 taskkill /F /IM node.exe /T >nul 2>&1
 timeout /t 2 /nobreak >nul
+echo      完成
+
+:: 清理旧版本前端文件（避免新旧文件共存）
+echo [2/4] 清理旧版本前端文件...
+del /F /Q "%INSTALL_DIR%\client\dist\assets\ParamsPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\BusinessPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\DashboardPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\WorkflowsPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\ReportsPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\KnowledgePage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\FilesPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\SettingsPage-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\NotFound-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\index-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\index-*.css" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\button-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\circle-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\download-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\eye-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\input-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\loader-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\plus-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\refresh-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\save-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\select-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\table-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\tabs-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\tag-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\textarea-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\trash-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\truck-*.js" >nul 2>&1
+del /F /Q "%INSTALL_DIR%\client\dist\assets\zh-CN-*.js" >nul 2>&1
+echo      完成
 
 :: 下载并更新服务器文件
-echo [2/3] 更新服务器文件...
+echo [3/4] 更新服务器文件...
 call :download "server/index.js"
 call :download "server/db.js"
 call :download "server/paramsRouter.js"
 call :download "server/uploadRouter.js"
 
 :: 下载并更新前端文件
-echo [3/3] 更新前端文件...
+echo [4/4] 更新前端文件...
 call :download "client/dist/index.html"
 call :download "client/dist/assets/ParamsPage-Drrnsky5.js"
 call :download "client/dist/assets/BusinessPage-DJxqt7aW.js"
@@ -113,6 +146,6 @@ powershell -NoProfile -Command ^
     "  Invoke-WebRequest -Uri '%CDN%/%_SRC%' -OutFile '%_DEST%' -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop;" ^
     "  Write-Host '  [OK] %_SRC%'" ^
     "} catch {" ^
-    "  Write-Host '  [跳过] %_SRC%'" ^
+    "  Write-Host '  [失败] %_SRC%: ' + $_.Exception.Message" ^
     "}"
 exit /b 0
