@@ -637,6 +637,47 @@ paramsApp.post("/import/:type", paramsUpload.single("file"), (req, res) => {
     // 提取标题行，用于所有类型的动态列名
     const headerRow = rows[0].map(h => String(h || "").trim());
 
+    // ─── 日期格式自动转换：统一转换为 YYYY-MM 格式 ────────────────────────────────────────────────
+    // 支持格式：Excel 序列号、YYYY-MM、YYYY/MM、YYYY.MM、YYYY年MM月、YYYY-MM-DD 等
+    function normalizeYearMonth(val) {
+      if (val === undefined || val === null || String(val).trim() === "") return val;
+      const s = String(val).trim();
+
+      // 已经是 YYYY-MM 格式
+      if (/^\d{4}-\d{2}$/.test(s)) return s;
+
+      // YYYY-MM-DD 或 YYYY/MM/DD 或 YYYY.MM.DD
+      const fullDate = s.match(/^(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})$/);
+      if (fullDate) return `${fullDate[1]}-${fullDate[2].padStart(2, '0')}`;
+
+      // YYYY/MM 或 YYYY.MM 或 YYYY年MM月
+      const ymSlash = s.match(/^(\d{4})[\-\/\.](\d{1,2})$/);
+      if (ymSlash) return `${ymSlash[1]}-${ymSlash[2].padStart(2, '0')}`;
+
+      const ymCn = s.match(/^(\d{4})年(\d{1,2})月$/);
+      if (ymCn) return `${ymCn[1]}-${ymCn[2].padStart(2, '0')}`;
+
+      // Excel 日期序列号（整数，范围 30000-60000 对应 1982-2064 年）
+      const num = Number(s);
+      if (!isNaN(num) && Number.isInteger(num) && num > 30000 && num < 60000) {
+        // Excel 序列号转日期：1900-01-01 是第1天（Excel 有个 1900-02-29 的 bug，需要减 1）
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30)); // 1899-12-30
+        const d = new Date(excelEpoch.getTime() + num * 86400000);
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        return `${y}-${m}`;
+      }
+
+      return s; // 无法识别，保留原値
+    }
+
+    // 判断某列是否为日期列（列名包含日期相关关键词）
+    const DATE_COL_KEYWORDS = ['月份', '日期', '月份*', 'month', 'date', 'period', '年月'];
+    function isDateColumn(colName) {
+      const lower = String(colName).toLowerCase();
+      return DATE_COL_KEYWORDS.some(k => lower.includes(k.toLowerCase()));
+    }
+
     for (const row of dataRows) {
       try {
         if (type === "sku") {
@@ -678,11 +719,15 @@ paramsApp.post("/import/:type", paramsUpload.single("file"), (req, res) => {
           };
           const tbl = tableMap[type];
           if (!tbl) { skipped++; continue; }
-          // 把所有列打包成 JSON
+          // 把所有列打包成 JSON，日期列自动转换为 YYYY-MM
           const extra = {};
           headerRow.forEach((name, idx) => {
-            const val = row[idx];
+            let val = row[idx];
             if (name && val !== undefined && val !== null && String(val).trim() !== "") {
+              // 日期列自动转换
+              if (isDateColumn(name)) {
+                val = normalizeYearMonth(val);
+              }
               extra[name] = String(val).trim();
             }
           });
