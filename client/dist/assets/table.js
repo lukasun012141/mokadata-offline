@@ -1,4 +1,4 @@
-import{c as o,h as a,i as l}from"./index-BgIpdxy9.js";/**
+import{c as o,h as a,i as l}from"./index.js";/**
  * @license lucide-react v0.453.0 - ISC
  *
  * This source code is licensed under the ISC license.

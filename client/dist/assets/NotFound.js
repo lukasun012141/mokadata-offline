@@ -1,4 +1,4 @@
-import{c as s,h as e,i as o,a6 as l}from"./index-BgIpdxy9.js";import{B as n}from"./button-Cr1DvYw-.js";import{C as u}from"./circle-alert-C9AFU1oT.js";/**
+import{c as s,h as e,i as o,a6 as l}from"./index.js";import{B as n}from"./button.js";import{C as u}from"./circle-alert.js";/**
  * @license lucide-react v0.453.0 - ISC
  *
  * This source code is licensed under the ISC license.

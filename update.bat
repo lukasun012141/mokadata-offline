@@ -4,7 +4,7 @@ title MokaData Update
 set "INSTALL_DIR=%~dp0"
 if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
 
-set "COMMIT=0998de0319adecacb1d324d869dcadbc9b817b8d"
+set "COMMIT=1dcfe2a1b903c2afc84640e630337a8c63ba8084"
 set "CDN=https://cdn.jsdelivr.net/gh/lukasun012141/mokadata-offline@%COMMIT%"
 
 where powershell >nul 2>&1
@@ -23,81 +23,50 @@ if errorlevel 1 (
 )
 echo Network OK
 
-echo [1/4] Stopping MokaData...
+echo [1/3] Stopping MokaData...
 taskkill /F /IM node.exe /T >nul 2>&1
 timeout /t 2 /nobreak >nul
 echo Done
 
-echo [2/4] Removing old frontend files...
-del /F /Q "%INSTALL_DIR%\client\dist\assets\ParamsPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\BusinessPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\DashboardPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\WorkflowsPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\ReportsPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\KnowledgePage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\FilesPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\SettingsPage-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\NotFound-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\index-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\index-*.css" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\button-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\circle-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\download-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\eye-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\input-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\loader-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\plus-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\refresh-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\save-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\select-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\table-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\tabs-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\tag-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\textarea-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\trash-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\truck-*.js" >nul 2>&1
-del /F /Q "%INSTALL_DIR%\client\dist\assets\zh-CN-*.js" >nul 2>&1
-echo Done
-
-echo [3/4] Updating server files...
+echo [2/3] Updating server files...
 call :download "server/index.js"
 call :download "server/db.js"
 call :download "server/paramsRouter.js"
 call :download "server/uploadRouter.js"
 
-echo [4/4] Updating frontend files...
+echo [3/3] Updating frontend files...
 call :download "client/dist/index.html"
-call :download "client/dist/assets/ParamsPage-Drrnsky5.js"
-call :download "client/dist/assets/BusinessPage-DJxqt7aW.js"
-call :download "client/dist/assets/DashboardPage-F3s81qqJ.js"
-call :download "client/dist/assets/WorkflowsPage-CSIk30Bj.js"
-call :download "client/dist/assets/ReportsPage-BhFqPFEI.js"
-call :download "client/dist/assets/KnowledgePage-BFyoI-94.js"
-call :download "client/dist/assets/FilesPage-CCCCqgCM.js"
-call :download "client/dist/assets/SettingsPage-0vFkoEDC.js"
-call :download "client/dist/assets/NotFound--faEOIsp.js"
-call :download "client/dist/assets/index-BgIpdxy9.js"
-call :download "client/dist/assets/index-BRMQEhit.js"
-call :download "client/dist/assets/index-Djk_fNla.js"
-call :download "client/dist/assets/index-gG-crZc2.css"
-call :download "client/dist/assets/button-Cr1DvYw-.js"
-call :download "client/dist/assets/circle-alert-C9AFU1oT.js"
-call :download "client/dist/assets/circle-check-h-2kJT2B.js"
-call :download "client/dist/assets/download-BeGla2lH.js"
-call :download "client/dist/assets/eye-CAxEoaEc.js"
-call :download "client/dist/assets/input-iRZ_-bva.js"
-call :download "client/dist/assets/loader-circle-CtdZQ17C.js"
-call :download "client/dist/assets/plus-CIaGjrOT.js"
-call :download "client/dist/assets/refresh-cw-CWC2OB-Q.js"
-call :download "client/dist/assets/save-lTikd9nI.js"
-call :download "client/dist/assets/select-BQxF0tU4.js"
-call :download "client/dist/assets/table-DMwRPCKH.js"
-call :download "client/dist/assets/tabs-DJR6qiTX.js"
-call :download "client/dist/assets/tag-B-SZn5-M.js"
-call :download "client/dist/assets/textarea-DLQRUGKf.js"
-call :download "client/dist/assets/trash-2-Cm2gsLOQ.js"
-call :download "client/dist/assets/truck-8bsIEJkw.js"
-call :download "client/dist/assets/zh-CN-BSzAfSfA.js"
+call :download "client/dist/assets/ParamsPage.js"
+call :download "client/dist/assets/BusinessPage.js"
+call :download "client/dist/assets/DashboardPage.js"
+call :download "client/dist/assets/WorkflowsPage.js"
+call :download "client/dist/assets/ReportsPage.js"
+call :download "client/dist/assets/KnowledgePage.js"
+call :download "client/dist/assets/FilesPage.js"
+call :download "client/dist/assets/SettingsPage.js"
+call :download "client/dist/assets/NotFound.js"
+call :download "client/dist/assets/index.js"
+call :download "client/dist/assets/index2.js"
+call :download "client/dist/assets/index3.js"
+call :download "client/dist/assets/index.css"
+call :download "client/dist/assets/button.js"
+call :download "client/dist/assets/circle-alert.js"
+call :download "client/dist/assets/circle-check.js"
+call :download "client/dist/assets/download.js"
+call :download "client/dist/assets/eye.js"
+call :download "client/dist/assets/input.js"
+call :download "client/dist/assets/loader-circle.js"
+call :download "client/dist/assets/plus.js"
+call :download "client/dist/assets/refresh-cw.js"
+call :download "client/dist/assets/save.js"
+call :download "client/dist/assets/select.js"
+call :download "client/dist/assets/table.js"
+call :download "client/dist/assets/tabs.js"
+call :download "client/dist/assets/tag.js"
+call :download "client/dist/assets/textarea.js"
+call :download "client/dist/assets/trash-2.js"
+call :download "client/dist/assets/truck.js"
+call :download "client/dist/assets/zh-CN.js"
 
 echo.
 echo ===== Update complete! Restarting MokaData... =====
@@ -115,11 +84,5 @@ set "_DEST=%INSTALL_DIR%\%_SRC:/=\%"
 for %%F in ("%_DEST%") do (
     if not exist "%%~dpF" mkdir "%%~dpF" >nul 2>&1
 )
-powershell -NoProfile -Command ^
-    "try {" ^
-    "  Invoke-WebRequest -Uri '%CDN%/%_SRC%' -OutFile '%_DEST%' -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop;" ^
-    "  Write-Host '  [OK] %_SRC%'" ^
-    "} catch {" ^
-    "  Write-Host '  [FAIL] %_SRC%: ' + $_.Exception.Message" ^
-    "}"
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%CDN%/%_SRC%' -OutFile '%_DEST%' -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop; Write-Host '  [OK] %_SRC%' } catch { Write-Host '  [FAIL] %_SRC%: ' + $_.Exception.Message }"
 exit /b 0
