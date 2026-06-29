@@ -61,16 +61,30 @@ function rebuildParamTable(database, tableName) {
     `);
 
     // 迁移旧数据中的 extra_fields（如果有的话）
+    // 注意：旧表可能没有 extra_fields / created_at / updated_at 列，需要动态判断
     const hasExtraFields = colNames.includes("extra_fields");
-    if (hasExtraFields) {
+    const hasCreatedAt = colNames.includes("created_at");
+    // updated_at 在旧表中可能不存在，用 CURRENT_TIMESTAMP 兜底
+    if (hasExtraFields && hasCreatedAt) {
       database.run(`
         INSERT INTO ${tmpName} (id, extra_fields, created_at, updated_at)
-        SELECT id, extra_fields, created_at, updated_at FROM ${tableName}
+        SELECT id, extra_fields, created_at, strftime('%s','now') * 1000 FROM ${tableName}
       `);
-    } else {
+    } else if (hasExtraFields) {
+      database.run(`
+        INSERT INTO ${tmpName} (id, extra_fields, created_at, updated_at)
+        SELECT id, extra_fields, strftime('%s','now') * 1000, strftime('%s','now') * 1000 FROM ${tableName}
+      `);
+    } else if (hasCreatedAt) {
       database.run(`
         INSERT INTO ${tmpName} (id, created_at, updated_at)
-        SELECT id, created_at, updated_at FROM ${tableName}
+        SELECT id, created_at, strftime('%s','now') * 1000 FROM ${tableName}
+      `);
+    } else {
+      // 旧表只有业务列，没有 extra_fields/created_at/updated_at，只迁移 id
+      database.run(`
+        INSERT INTO ${tmpName} (id)
+        SELECT id FROM ${tableName}
       `);
     }
 

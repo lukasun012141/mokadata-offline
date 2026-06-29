@@ -194,7 +194,8 @@ const OLD_TABLE_DEFAULTS = {
   freight_by_sku: { sku_code: "", destination: "", transport_mode: "", price_per_sku: 0 },
   freight_by_category: { category_name: "", destination: "", transport_mode: "", price_per_category: 0 },
   freight_by_category_only: { category_name: "", transport_mode: "", price_per_category: 0 },
-  last_mile_configs: { logistics_provider: "", country_name: "" },
+  // last_mile_configs 旧表有 logistics_provider / country_name / warehouse_name / service_type 四个 NOT NULL 列
+  last_mile_configs: { logistics_provider: "", country_name: "", warehouse_name: "", service_type: "" },
   points_redemption_config: {},
 };
 
